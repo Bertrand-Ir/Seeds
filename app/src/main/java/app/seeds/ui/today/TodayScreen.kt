@@ -38,6 +38,9 @@ import androidx.compose.material.icons.rounded.NightsStay
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.Widgets
+import app.seeds.ui.rememberResumeTick
+import app.seeds.widget.Widgets
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -115,6 +118,13 @@ fun TodayScreen(
 
     val colorOf: (Long?) -> Int? = { id -> data.seeds.firstOrNull { it.id == id }?.color }
 
+    // Offer the home-screen widget once, until it's placed or dismissed.
+    val uiPrefs = remember { ctx.getSharedPreferences("seeds_ui", android.content.Context.MODE_PRIVATE) }
+    val resume = rememberResumeTick()
+    var tipDismissed by remember { mutableStateOf(uiPrefs.getBoolean("widget_tip_dismissed", false)) }
+    val showWidgetTip = remember(resume, tipDismissed) { !tipDismissed && Widgets.canPin(ctx) && !Widgets.placed(ctx) }
+    val dismissWidgetTip = { tipDismissed = true; uiPrefs.edit().putBoolean("widget_tip_dismissed", true).apply() }
+
     LazyColumn(
         Modifier.fillMaxSize().statusBarsPadding(),
         contentPadding = PaddingValues(start = Dimens.gutter, end = Dimens.gutter, top = 8.dp, bottom = 140.dp),
@@ -158,6 +168,27 @@ fun TodayScreen(
                     StatTile("Growing", Fmt.duration(o.focusMs), Modifier.weight(1f))
                     StatTile("Breaks", Fmt.duration(o.breakMs), Modifier.weight(1f))
                     StatTile("Drift", Fmt.duration(o.driftMs), Modifier.weight(1f), valueColor = if (o.driftMs > 0) SeedsTheme.colors.drift else SeedsTheme.colors.ink)
+                }
+            }
+        }
+
+        if (showWidgetTip) {
+            item {
+                Spacer(Modifier.height(Dimens.gap))
+                SeedsCard(color = SeedsTheme.colors.accentSoft) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Widgets, null, tint = SeedsTheme.colors.accent)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Put Seeds on your home screen", style = SeedsType.bodyStrong, color = SeedsTheme.colors.ink)
+                            Text("See what's growing, switch in one tap, and catch MoMo payments to label.", style = SeedsType.caption, color = SeedsTheme.colors.inkMuted)
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PillButton("Not now", { dismissWidgetTip() }, Modifier.weight(1f), style = ButtonStyle.Ghost, height = 44.dp)
+                        PillButton("Add widget", { Widgets.requestPin(ctx); dismissWidgetTip() }, Modifier.weight(1f), height = 44.dp)
+                    }
                 }
             }
         }

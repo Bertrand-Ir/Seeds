@@ -23,6 +23,7 @@ import app.seeds.domain.Fmt
 import app.seeds.domain.Overview
 import app.seeds.domain.SeedStat
 import app.seeds.tracking.ActionReceiver
+import app.seeds.ui.money.MoneyPromptActivity
 import app.seeds.ui.switcher.QuickSwitchActivity
 import app.seeds.ui.theme.SeedPalette
 
@@ -214,19 +215,26 @@ object Notifier {
         val inbound = txn.direction == Direction.IN
         val who = txn.counterparty?.let { if (inbound) " from $it" else " to $it" } ?: ""
         val bal = txn.balanceAfter?.let { " Balance ${Fmt.money(it, currency)}." } ?: ""
+        val popup = PendingIntent.getActivity(
+            ctx, 7000 + (txn.id % 1000).toInt(), MoneyPromptActivity.intent(ctx, txn.id),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         val b = base(ctx, CH_MONEY)
             .setContentTitle(Fmt.signedMoney(txn.amount, inbound, currency) + who)
             .setContentText((if (inbound) "Where did this come from?" else "What was this for?") + bal)
             .setColor(if (inbound) BRAND else 0xFFD9552F.toInt())
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setAutoCancel(true)
-            .setContentIntent(openApp(ctx, "txn/${txn.id}", (txn.id % 1000).toInt()))
+            .setContentIntent(popup)
+            // When the phone is locked or idle, Android shows the popup directly.
+            .setFullScreenIntent(popup, true)
         suggestions.take(2).forEachIndexed { i, c ->
             b.addAction(0, c.name, action(ctx, ActionReceiver.LABEL, (5000 + txn.id * 4 + i).toInt()) {
                 putExtra(ActionReceiver.EXTRA_TXN, txn.id); putExtra(ActionReceiver.EXTRA_CATEGORY, c.id)
             })
         }
-        b.addAction(0, "Other…", openApp(ctx, "txn/${txn.id}", 500 + (txn.id % 1000).toInt()))
+        b.addAction(0, "Other…", popup)
         post(ctx, moneyId(txn.id), b.build())
     }
 

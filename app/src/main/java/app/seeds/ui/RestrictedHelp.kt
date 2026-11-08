@@ -36,6 +36,11 @@ enum class Restricted(val title: String, val why: String, val retryLabel: String
         "Seeds needs this to notice when work time turns into scrolling. If the switch is greyed out (“Controlled by Restricted Setting”), Android wants you to allow it first.",
         "Open usage access",
     ),
+    OVERLAY(
+        "Let money pop up",
+        "To ask about a MoMo payment the moment it happens, Seeds needs “Display over other apps”. If the switch is greyed out, Android wants you to allow it first.",
+        "Open the setting",
+    ),
 }
 
 /** Walks the user through Android's "Allow restricted settings" for sideloaded apps. */

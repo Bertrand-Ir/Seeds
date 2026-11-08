@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -63,7 +64,7 @@ fun CategoryPicker(categories: List<Category>, direction: Direction, selected: L
 
 /** Label (or correct) one transaction. */
 @Composable
-fun TxnSheet(txnId: Long, settings: Settings, onDismiss: () -> Unit) {
+fun TxnSheet(txnId: Long, settings: Settings, quick: Boolean = false, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val c = ctx.seeds
     val scope = rememberCoroutineScope()
@@ -73,8 +74,16 @@ fun TxnSheet(txnId: Long, settings: Settings, onDismiss: () -> Unit) {
     var note by remember { mutableStateOf("") }
     var person by remember { mutableStateOf("") }
     var showRaw by remember { mutableStateOf(false) }
+    var suggested by remember { mutableStateOf<List<Long>>(emptyList()) }
     LaunchedEffect(txnId) {
-        c.money.txn(txnId)?.let { t -> txn = t; cat = t.categoryId; note = t.note.orEmpty(); person = t.counterparty.orEmpty() }
+        c.money.txn(txnId)?.let { t ->
+            txn = t; cat = t.categoryId; note = t.note.orEmpty(); person = t.counterparty.orEmpty()
+            suggested = c.money.suggestions(t, 4).map { it.id }
+        }
+    }
+    // Most likely categories first.
+    val ordered = remember(categories, suggested) {
+        suggested.mapNotNull { id -> categories.firstOrNull { it.id == id } } + categories.filter { it.id !in suggested }
     }
     val t = txn ?: return
     val inbound = t.direction == Direction.IN
@@ -95,7 +104,18 @@ fun TxnSheet(txnId: Long, settings: Settings, onDismiss: () -> Unit) {
         Spacer(Modifier.height(18.dp))
         Text(if (inbound) "Where did it come from?" else "What was it for?", style = SeedsType.subtitle, color = SeedsTheme.colors.ink)
         Spacer(Modifier.height(10.dp))
-        CategoryPicker(categories, t.direction, cat) { cat = it }
+        CategoryPicker(ordered, t.direction, cat) { id ->
+            cat = id
+            // In the popup, one tap on an ordinary category is enough.
+            if (quick && categories.firstOrNull { it.id == id }?.special == null) scope.launch {
+                c.money.label(t.id, id, note.ifBlank { null }, null)
+                app.seeds.notify.Notifier.cancel(ctx, app.seeds.notify.Notifier.moneyId(t.id))
+                onDismiss()
+            }
+        }
+        if (quick) {
+            Text("Tap one and you're done.", style = SeedsType.caption, color = SeedsTheme.colors.inkFaint, modifier = Modifier.padding(top = 8.dp))
+        }
         Spacer(Modifier.height(16.dp))
         if (selectedCat?.special != null) {
             OutlinedTextField(person, { person = it }, label = { Text("Who?") }, singleLine = true, modifier = Modifier.fillMaxWidth(), colors = seedsFieldColors())

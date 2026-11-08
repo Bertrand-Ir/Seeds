@@ -100,6 +100,9 @@ interface TxnDao {
     @Query("SELECT * FROM transactions WHERE categoryId IS NULL ORDER BY timestamp DESC")
     fun observeUnlabeled(): Flow<List<Txn>>
 
+    @Query("SELECT * FROM transactions WHERE categoryId IS NULL ORDER BY timestamp DESC")
+    suspend fun unlabeledNow(): List<Txn>
+
     @Query("SELECT * FROM transactions WHERE balanceAfter IS NOT NULL ORDER BY timestamp DESC LIMIT 1")
     fun observeLatestBalance(): Flow<Txn?>
 

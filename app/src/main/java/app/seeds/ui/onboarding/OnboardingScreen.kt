@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Payments
 import androidx.compose.material.icons.rounded.QueryStats
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Sms
@@ -267,6 +268,7 @@ private fun PermissionsPage() {
     val usage = remember(tick, refresh) { Perms.usage(ctx) }
     val sms = remember(tick, refresh) { Perms.sms(ctx) }
     val battery = remember(tick, refresh) { Perms.battery(ctx) }
+    val overlay = remember(tick, refresh) { Perms.overlay(ctx) }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refresh++ }
     var help by remember { mutableStateOf<Restricted?>(null) }
     val smsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
@@ -281,8 +283,15 @@ private fun PermissionsPage() {
     }
     PermRow("Usage access", "Notices when work turns into scrolling", Icons.Rounded.QueryStats, usage) { help = Restricted.USAGE }
     PermRow("SMS", "Reads MoMo messages to track money", Icons.Rounded.Sms, sms) { askSms() }
+    PermRow("Money popups", "Asks about a payment the moment it happens", Icons.Rounded.Payments, overlay) { help = Restricted.OVERLAY }
     help?.let { kind ->
-        RestrictedHelp(kind, onRetry = { if (kind == Restricted.SMS) askSms() else Perms.openUsageSettings(ctx) }, onDismiss = { help = null })
+        RestrictedHelp(kind, onRetry = {
+            when (kind) {
+                Restricted.SMS -> askSms()
+                Restricted.USAGE -> Perms.openUsageSettings(ctx)
+                Restricted.OVERLAY -> Perms.openOverlaySettings(ctx)
+            }
+        }, onDismiss = { help = null })
     }
     PermRow("Unrestricted battery", "So reminders arrive on time", Icons.Rounded.BatteryChargingFull, battery) { Perms.requestBattery(ctx) }
     Spacer(Modifier.height(12.dp))

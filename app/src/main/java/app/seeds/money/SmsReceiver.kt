@@ -8,6 +8,7 @@ import app.seeds.data.repo.MoneyRepository
 import app.seeds.domain.MomoParser
 import app.seeds.notify.Notifier
 import app.seeds.seeds
+import app.seeds.ui.money.MoneyPromptActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -31,7 +32,10 @@ class SmsReceiver : BroadcastReceiver() {
                 if (!s.moneyEnabled) return@launch
                 if (!MoneyRepository.isMoneySender(sender, s.momoSenders) || !MomoParser.looksLikeMoney(body)) return@launch
                 val txn = c.money.recordSms(body, at) ?: return@launch
-                Notifier.money(context, txn, s.currency, c.money.suggestions(txn))
+                // Popup over whatever is on screen; otherwise a full-screen alert that opens the same popup.
+                if (!MoneyPromptActivity.tryShow(context, txn.id)) {
+                    Notifier.money(context, txn, s.currency, c.money.suggestions(txn))
+                }
             } finally {
                 pending.finish()
             }

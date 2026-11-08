@@ -22,6 +22,9 @@
     <!-- Mobile Money (MoMo) SMS -->
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.READ_SMS" />
+    <!-- Money popup over other apps, and on the lock screen -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <!-- Self-update from GitHub releases -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -70,6 +73,17 @@
             android:launchMode="singleInstance"
             android:taskAffinity="app.seeds.quickswitch"
             android:theme="@style/Theme.Seeds.Sheet" />
+
+        <activity
+            android:name=".ui.money.MoneyPromptActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:taskAffinity="app.seeds.money"
+            android:theme="@style/Theme.Seeds.Sheet"
+            android:windowSoftInputMode="adjustResize" />
 
         <service
             android:name=".tracking.TrackerService"

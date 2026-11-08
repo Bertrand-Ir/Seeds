@@ -23,6 +23,10 @@ import app.seeds.tracking.ActionReceiver
 import app.seeds.tracking.AppLabels
 import app.seeds.tracking.Effects
 import app.seeds.ui.theme.SeedPalette
+import app.seeds.ui.money.MoneyPromptActivity
+import app.seeds.data.db.Txn
+import app.seeds.seeds
+import android.app.PendingIntent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -36,6 +40,20 @@ class TodayWidget : AppWidgetProvider() {
 }
 
 object Widgets {
+    fun placed(ctx: Context): Boolean {
+        val mgr = AppWidgetManager.getInstance(ctx)
+        return mgr.getAppWidgetIds(ComponentName(ctx, NowWidget::class.java)).isNotEmpty() ||
+            mgr.getAppWidgetIds(ComponentName(ctx, TodayWidget::class.java)).isNotEmpty()
+    }
+
+    fun canPin(ctx: Context): Boolean = AppWidgetManager.getInstance(ctx).isRequestPinAppWidgetSupported
+
+    /** Asks the launcher to drop the widget on the home screen (the user confirms). */
+    fun requestPin(ctx: Context, today: Boolean = false): Boolean = runCatching {
+        val cls = if (today) TodayWidget::class.java else NowWidget::class.java
+        AppWidgetManager.getInstance(ctx).requestPinAppWidget(ComponentName(ctx, cls), null, null)
+    }.getOrDefault(false)
+
     fun refreshAsync(ctx: Context, pending: android.content.BroadcastReceiver.PendingResult) {
         CoroutineScope(Dispatchers.Default).launch {
             try { updateAll(ctx) } finally { pending.finish() }
@@ -48,14 +66,26 @@ object Widgets {
         val todayIds = mgr.getAppWidgetIds(ComponentName(ctx, TodayWidget::class.java))
         if (nowIds.isEmpty() && todayIds.isEmpty()) return
         val o = runCatching { Effects.overview(ctx) }.getOrNull() ?: return
-        if (nowIds.isNotEmpty()) mgr.updateAppWidget(nowIds, nowViews(ctx, o))
-        if (todayIds.isNotEmpty()) mgr.updateAppWidget(todayIds, todayViews(ctx, o))
+        val unlabeled = runCatching { ctx.seeds.money.unlabeledNow() }.getOrDefault(emptyList())
+        if (nowIds.isNotEmpty()) mgr.updateAppWidget(nowIds, nowViews(ctx, o, unlabeled))
+        if (todayIds.isNotEmpty()) mgr.updateAppWidget(todayIds, todayViews(ctx, o, unlabeled))
     }
 
-    private fun nowViews(ctx: Context, o: Overview): RemoteViews {
+    private fun moneyPopup(ctx: Context, txn: Txn): PendingIntent = PendingIntent.getActivity(
+        ctx, 96, MoneyPromptActivity.intent(ctx, txn.id), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    private fun nowViews(ctx: Context, o: Overview, unlabeled: List<Txn>): RemoteViews {
         val v = RemoteViews(ctx.packageName, R.layout.widget_now)
         v.setOnClickPendingIntent(R.id.root, Notifier.openApp(ctx, code = 90))
         v.setTextViewText(R.id.score, o.score?.let { "$it today" } ?: "")
+        if (unlabeled.isNotEmpty()) {
+            v.setViewVisibility(R.id.money, View.VISIBLE)
+            v.setTextViewText(R.id.money, "${unlabeled.size} MoMo to label")
+            v.setOnClickPendingIntent(R.id.money, moneyPopup(ctx, unlabeled.first()))
+        } else {
+            v.setViewVisibility(R.id.money, View.GONE)
+        }
         val active = o.active
         val ink = ContextCompat.getColor(ctx, R.color.widget_ink)
         if (active != null) {
@@ -116,14 +146,16 @@ object Widgets {
         return v
     }
 
-    private fun todayViews(ctx: Context, o: Overview): RemoteViews {
+    private fun todayViews(ctx: Context, o: Overview, unlabeled: List<Txn>): RemoteViews {
         val v = RemoteViews(ctx.packageName, R.layout.widget_today)
         v.setOnClickPendingIntent(R.id.root, Notifier.openApp(ctx, code = 95))
         v.setTextViewText(R.id.score, o.score?.toString() ?: "–")
         v.setImageViewBitmap(R.id.ring, ring(ctx, (o.score ?: 0) / 100f))
+        if (unlabeled.isNotEmpty()) v.setOnClickPendingIntent(R.id.summary, moneyPopup(ctx, unlabeled.first()))
         v.setTextViewText(
             R.id.summary,
             when {
+                unlabeled.isNotEmpty() -> "● ${unlabeled.size} MoMo to label"
                 o.active != null && o.activeSeed != null -> "● ${o.activeSeed.name}"
                 o.dailyCount > 0 -> "${o.grown}/${o.dailyCount} grown · ${Fmt.duration(o.focusMs)}"
                 else -> Fmt.duration(o.focusMs) + " today"

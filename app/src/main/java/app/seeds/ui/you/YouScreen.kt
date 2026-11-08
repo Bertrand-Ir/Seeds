@@ -27,6 +27,9 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Payments
+import androidx.compose.material.icons.rounded.Widgets
+import app.seeds.widget.Widgets
 import androidx.compose.material.icons.rounded.QueryStats
 import androidx.compose.material.icons.rounded.Sms
 import androidx.compose.material.icons.rounded.SystemUpdate
@@ -261,6 +264,7 @@ fun YouScreen(
             val usage = remember(r) { Perms.usage(ctx) }
             val sms = remember(r) { Perms.sms(ctx) }
             val battery = remember(r) { Perms.battery(ctx) }
+            val overlay = remember(r) { Perms.overlay(ctx) }
             SeedsCard(padding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
                 PermRow("Notifications", "Check-ins, drift, money, reports", Icons.Rounded.Notifications, notif) {
                     if (android.os.Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) else Perms.openAppSettings(ctx)
@@ -269,6 +273,7 @@ fun YouScreen(
                 PermRow("SMS", "Reads Mobile Money messages", Icons.Rounded.Sms, sms) {
                     smsLauncher.launch(arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS))
                 }
+                PermRow("Money popups", "Display over other apps, for instant MoMo questions", Icons.Rounded.Payments, overlay) { help = Restricted.OVERLAY }
                 PermRow("Unrestricted battery", "Keeps timers and check-ins reliable", Icons.Rounded.BatteryChargingFull, battery) { Perms.requestBattery(ctx) }
                 Text(
                     "If Android blocks SMS access: App info → ⋮ → Allow restricted settings.",
@@ -299,6 +304,12 @@ fun YouScreen(
                     ChoiceChip("Dark", settings.theme == Settings.THEME_DARK, { update { it.copy(theme = Settings.THEME_DARK) } })
                 }
                 Spacer(Modifier.height(10.dp))
+                if (Widgets.canPin(ctx)) {
+                    SettingRow("Add the Now widget", "Live timer, Switch / Done, MoMo to label", Icons.Rounded.Widgets, onClick = { Widgets.requestPin(ctx) })
+                    SettingRow("Add the Today widget", "Your day score ring", Icons.Rounded.Widgets, onClick = { Widgets.requestPin(ctx, today = true) })
+                } else {
+                    SettingRow("Add a widget", "Long-press your home screen → Widgets → Seeds", Icons.Rounded.Widgets)
+                }
                 SettingRow("Check for updates", "Version ${c.updates.currentVersion}", Icons.Rounded.SystemUpdate, onClick = onOpenUpdate)
                 SwitchRow("Notify me about updates", "Checks GitHub a few times a day.", settings.autoUpdate) { v -> update { it.copy(autoUpdate = v) } }
                 OutlinedTextField(repo, { repo = it.trim() }, label = { Text("GitHub repository") }, singleLine = true, modifier = Modifier.fillMaxWidth(), colors = seedsFieldColors(),
@@ -320,8 +331,11 @@ fun YouScreen(
 
     help?.let { kind ->
         RestrictedHelp(kind, onRetry = {
-            if (kind == Restricted.SMS) smsLauncher.launch(arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS))
-            else Perms.openUsageSettings(ctx)
+            when (kind) {
+                Restricted.SMS -> smsLauncher.launch(arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS))
+                Restricted.USAGE -> Perms.openUsageSettings(ctx)
+                Restricted.OVERLAY -> Perms.openOverlaySettings(ctx)
+            }
         }, onDismiss = { help = null })
     }
 

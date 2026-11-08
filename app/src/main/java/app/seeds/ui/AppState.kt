@@ -63,6 +63,16 @@ object Perms {
 
     fun battery(ctx: Context) = ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
 
+    /** "Display over other apps" — lets the money popup appear instantly over anything. */
+    fun overlay(ctx: Context) = AndroidSettings.canDrawOverlays(ctx)
+
+    fun openOverlaySettings(ctx: Context) = runCatching {
+        ctx.startActivity(
+            Intent(AndroidSettings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${ctx.packageName}"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+
     fun openUsageSettings(ctx: Context) = ctx.startActivity(
         Intent(AndroidSettings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
     )

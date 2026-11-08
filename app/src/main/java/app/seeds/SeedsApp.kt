@@ -11,6 +11,7 @@ import app.seeds.notify.Notifier
 import app.seeds.tracking.Effects
 import app.seeds.update.UpdateManager
 import app.seeds.update.UpdateWorker
+import app.seeds.widget.Widgets
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -38,7 +39,7 @@ class AppContainer(app: Context) {
     val db: SeedsDatabase = SeedsDatabase.build(app)
     val settings = SettingsRepository(app)
     val tracking = TrackingRepository(db) { Effects.refresh(app) }
-    val money = MoneyRepository(db)
+    val money = MoneyRepository(db) { Widgets.updateAll(app) }
     val updates = UpdateManager(app, settings)
 }
 

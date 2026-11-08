@@ -14,7 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 
-class MoneyRepository(private val db: SeedsDatabase) {
+/** Every write calls [onChange] so the widget's "to label" count stays current. */
+class MoneyRepository(private val db: SeedsDatabase, private val onChange: suspend () -> Unit = {}) {
     private val txns = db.txns()
     private val cats = db.categories()
     private val debts = db.debts()
@@ -42,8 +43,12 @@ class MoneyRepository(private val db: SeedsDatabase) {
             balanceAfter = p.balanceAfter, counterparty = p.counterparty, raw = body, provider = Txn.PROVIDER_MOMO,
         )
         val id = txns.insert(txn)
-        return if (id <= 0) null else txn.copy(id = id)
+        if (id <= 0) return null
+        onChange()
+        return txn.copy(id = id)
     }
+
+    suspend fun unlabeledNow(): List<Txn> = txns.unlabeledNow()
 
     /** Category suggestions for a transaction: last used for this person first, then most used. */
     suspend fun suggestions(txn: Txn, limit: Int = 3): List<Category> {
@@ -56,7 +61,12 @@ class MoneyRepository(private val db: SeedsDatabase) {
         return ordered.mapNotNull { byId[it] }.take(limit)
     }
 
-    suspend fun label(txnId: Long, categoryId: Long, note: String? = null, person: String? = null) = db.withTransaction {
+    suspend fun label(txnId: Long, categoryId: Long, note: String? = null, person: String? = null) {
+        labelInternal(txnId, categoryId, note, person)
+        onChange()
+    }
+
+    private suspend fun labelInternal(txnId: Long, categoryId: Long, note: String?, person: String?) = db.withTransaction {
         val t = txns.get(txnId) ?: return@withTransaction
         val cat = cats.get(categoryId)
         val who = person?.takeIf { it.isNotBlank() } ?: t.counterparty ?: "Someone"
@@ -86,12 +96,13 @@ class MoneyRepository(private val db: SeedsDatabase) {
             counterparty = counterparty?.takeIf { it.isNotBlank() }, note = note, provider = Txn.PROVIDER_CASH,
         )
         val id = txns.insert(t)
-        if (categoryId != null) label(id, categoryId, note, counterparty)
+        if (categoryId != null) labelInternal(id, categoryId, note, counterparty)
+        onChange()
         return id
     }
 
-    suspend fun updateTxn(t: Txn) = txns.update(t)
-    suspend fun deleteTxn(t: Txn) = txns.delete(t)
+    suspend fun updateTxn(t: Txn) { txns.update(t); onChange() }
+    suspend fun deleteTxn(t: Txn) { txns.delete(t); onChange() }
 
     suspend fun saveCategory(c: Category) { if (c.id == 0L) cats.insert(c) else cats.update(c) }
 
@@ -118,6 +129,7 @@ class MoneyRepository(private val db: SeedsDatabase) {
                 if (recordSms(body, c.getLong(id)) != null) added++
             }
         }
+        onChange()
         added
     }
 
