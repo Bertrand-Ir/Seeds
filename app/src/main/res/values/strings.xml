@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Seeds</string>
+    <string name="widget_now_label">Seeds · Now</string>
+    <string name="widget_now_desc">What you are growing right now, with a live timer and one-tap switching.</string>
+    <string name="widget_today_label">Seeds · Today</string>
+    <string name="widget_today_desc">Your day score and seeds grown today.</string>
+    <string name="fgs_subtype">Tracks the activity the user explicitly started, and checks for drift during their work hours.</string>
+</resources>

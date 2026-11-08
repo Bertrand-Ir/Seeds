@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="108" height="108">
+  <rect width="108" height="108" rx="26" fill="#0E1210"/>
+  <circle cx="54" cy="54" r="30" fill="#B6F36A" fill-opacity="0.1"/>
+  <g transform="rotate(38 54 54) translate(54 54) scale(1.06) translate(-54 -54)">
+    <path fill="#B6F36A" fill-rule="evenodd" d="M54,31 C67,40 71,60 54,77 C37,60 41,40 54,31 Z M54.6,76 C52,66 54,55 60.5,45.5 C56.5,55.5 55.6,65.5 54.6,76 Z"/>
+  </g>
+</svg>

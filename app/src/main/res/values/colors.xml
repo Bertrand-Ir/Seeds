@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand -->
+    <color name="seeds_soil">#0E1210</color>
+    <color name="seeds_paper">#F5F3EC</color>
+    <color name="seeds_sprout">#B6F36A</color>
+    <color name="seeds_forest">#1E7A4A</color>
+
+    <!-- Widget surface (light) -->
+    <color name="widget_bg">#FFFFFF</color>
+    <color name="widget_ink">#111613</color>
+    <color name="widget_muted">#5F6A63</color>
+    <color name="widget_track">#ECE9DF</color>
+    <color name="widget_accent">#1E7A4A</color>
+    <color name="widget_on_accent">#FFFFFF</color>
+    <color name="widget_chip">#EDEAE1</color>
+</resources>
