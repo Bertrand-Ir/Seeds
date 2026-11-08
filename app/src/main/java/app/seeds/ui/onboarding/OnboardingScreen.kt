@@ -72,6 +72,8 @@ import app.seeds.domain.Fmt
 import app.seeds.notify.Alarms
 import app.seeds.seeds
 import app.seeds.ui.Perms
+import app.seeds.ui.Restricted
+import app.seeds.ui.RestrictedHelp
 import app.seeds.ui.components.ButtonStyle
 import app.seeds.ui.components.PillButton
 import app.seeds.ui.components.SeedGlyph
@@ -266,15 +268,21 @@ private fun PermissionsPage() {
     val sms = remember(tick, refresh) { Perms.sms(ctx) }
     val battery = remember(tick, refresh) { Perms.battery(ctx) }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refresh++ }
-    val smsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { refresh++ }
+    var help by remember { mutableStateOf<Restricted?>(null) }
+    val smsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
+        refresh++
+        if (!res.values.all { it }) help = Restricted.SMS
+    }
+    val askSms = { smsLauncher.launch(arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS)) }
 
     Heading("Let Seeds help", "Each permission powers one promise. Everything is processed on your phone — nothing is uploaded.")
     PermRow("Notifications", "Check-ins, morning plan, nightly report", Icons.Rounded.Notifications, notif) {
         if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
-    PermRow("Usage access", "Notices when work turns into scrolling", Icons.Rounded.QueryStats, usage) { Perms.openUsageSettings(ctx) }
-    PermRow("SMS", "Reads MoMo messages to track money", Icons.Rounded.Sms, sms) {
-        smsLauncher.launch(arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS))
+    PermRow("Usage access", "Notices when work turns into scrolling", Icons.Rounded.QueryStats, usage) { help = Restricted.USAGE }
+    PermRow("SMS", "Reads MoMo messages to track money", Icons.Rounded.Sms, sms) { askSms() }
+    help?.let { kind ->
+        RestrictedHelp(kind, onRetry = { if (kind == Restricted.SMS) askSms() else Perms.openUsageSettings(ctx) }, onDismiss = { help = null })
     }
     PermRow("Unrestricted battery", "So reminders arrive on time", Icons.Rounded.BatteryChargingFull, battery) { Perms.requestBattery(ctx) }
     Spacer(Modifier.height(12.dp))

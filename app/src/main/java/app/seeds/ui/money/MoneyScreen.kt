@@ -56,6 +56,8 @@ import app.seeds.data.prefs.Settings
 import app.seeds.domain.Fmt
 import app.seeds.seeds
 import app.seeds.ui.Perms
+import app.seeds.ui.Restricted
+import app.seeds.ui.RestrictedHelp
 import app.seeds.ui.components.ButtonStyle
 import app.seeds.ui.components.ChoiceChip
 import app.seeds.ui.components.EmptyState
@@ -104,13 +106,14 @@ fun MoneyScreen(settings: Settings, onOpenTxn: (Long) -> Unit, onOpenDebts: () -
     val smsOk = remember(resume) { Perms.sms(ctx) }
     var importing by remember { mutableStateOf(false) }
     var importResult by remember { mutableStateOf<String?>(null) }
+    var help by remember { mutableStateOf(false) }
     val smsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
         if (res.values.all { it }) scope.launch {
             importing = true
             val n = c.money.importInbox(ctx, settings.momoSenders)
             importResult = "Found $n transactions from the last 4 months."
             importing = false
-        }
+        } else help = true
     }
     var showAdd by remember { mutableStateOf(false) }
 
@@ -257,6 +260,9 @@ fun MoneyScreen(settings: Settings, onOpenTxn: (Long) -> Unit, onOpenDebts: () -
     }
 
     if (showAdd) AddTxnSheet(settings, categories) { showAdd = false }
+    if (help) RestrictedHelp(Restricted.SMS, onRetry = {
+        smsLauncher.launch(arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS))
+    }, onDismiss = { help = false })
 }
 
 @Composable

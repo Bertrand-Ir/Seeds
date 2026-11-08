@@ -55,6 +55,8 @@ import app.seeds.notify.Alarms
 import app.seeds.seeds
 import app.seeds.tracking.Effects
 import app.seeds.ui.Perms
+import app.seeds.ui.Restricted
+import app.seeds.ui.RestrictedHelp
 import app.seeds.ui.components.ButtonStyle
 import app.seeds.ui.components.ChoiceChip
 import app.seeds.ui.components.PillButton
@@ -101,11 +103,12 @@ fun YouScreen(
     }
 
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    var help by remember { mutableStateOf<Restricted?>(null) }
     val smsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
         if (res.values.all { it }) scope.launch {
             val n = c.money.importInbox(ctx, settings.momoSenders)
             Toast.makeText(ctx, "Imported $n transactions", Toast.LENGTH_SHORT).show()
-        }
+        } else help = Restricted.SMS
     }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) scope.launch {
@@ -208,7 +211,7 @@ fun YouScreen(
                 }
                 Spacer(Modifier.height(6.dp))
                 SettingRow("Distracting apps", "${settings.distractingApps.size} apps watched", Icons.Rounded.Apps, onClick = onPickApps)
-                if (!usageOk) SettingRow("Usage access needed", "Without it Seeds can't see which app is open.", Icons.Rounded.ErrorOutline, onClick = { Perms.openUsageSettings(ctx) })
+                if (!usageOk) SettingRow("Usage access needed", "Without it Seeds can't see which app is open.", Icons.Rounded.ErrorOutline, onClick = { help = Restricted.USAGE })
             }
         }
 
@@ -262,7 +265,7 @@ fun YouScreen(
                 PermRow("Notifications", "Check-ins, drift, money, reports", Icons.Rounded.Notifications, notif) {
                     if (android.os.Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) else Perms.openAppSettings(ctx)
                 }
-                PermRow("Usage access", "Detects scrolling during work", Icons.Rounded.QueryStats, usage) { Perms.openUsageSettings(ctx) }
+                PermRow("Usage access", "Detects scrolling during work", Icons.Rounded.QueryStats, usage) { help = Restricted.USAGE }
                 PermRow("SMS", "Reads Mobile Money messages", Icons.Rounded.Sms, sms) {
                     smsLauncher.launch(arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS))
                 }
@@ -313,6 +316,13 @@ fun YouScreen(
                 Text("Small seeds, every day.", style = SeedsType.caption, color = SeedsTheme.colors.inkFaint)
             }
         }
+    }
+
+    help?.let { kind ->
+        RestrictedHelp(kind, onRetry = {
+            if (kind == Restricted.SMS) smsLauncher.launch(arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS))
+            else Perms.openUsageSettings(ctx)
+        }, onDismiss = { help = null })
     }
 
     when (timePick) {
