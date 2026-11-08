@@ -60,7 +60,7 @@ Requirements: JDK 17 and the Android SDK (API 36).
 
 1. Create the GitHub repo and push:
    ```bash
-   git remote add origin https://github.com/<you>/seeds.git
+   git remote add origin https://github.com/Bertrand-Ir/Seeds.git
    git push -u origin main
    ```
    The repo must be **public** for the in-app updater to read releases without a token.
