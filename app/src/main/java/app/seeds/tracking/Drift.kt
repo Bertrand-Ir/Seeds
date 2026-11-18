@@ -16,6 +16,8 @@ object DriftState {
     @Volatile var snoozeUntil: Long = 0
     /** Seed to offer resuming once an auto-logged drift ends. */
     @Volatile var resumeSeedId: Long? = null
+    /** How many times you've admitted drifting today — rotates the quote. */
+    @Volatile var driftsToday: Int = 0
 }
 
 object Usage {

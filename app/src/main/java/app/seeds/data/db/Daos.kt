@@ -192,6 +192,87 @@ interface DebtDao {
 }
 
 @Dao
+interface RouteDao {
+    @Query("SELECT * FROM routes WHERE archived = 0 ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<RunRoute>>
+
+    @Query("SELECT * FROM routes WHERE archived = 0")
+    suspend fun active(): List<RunRoute>
+
+    @Query("SELECT * FROM routes")
+    suspend fun all(): List<RunRoute>
+
+    @Query("SELECT * FROM routes WHERE id = :id")
+    suspend fun get(id: Long): RunRoute?
+
+    @Insert
+    suspend fun insert(route: RunRoute): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(routes: List<RunRoute>)
+
+    @Update
+    suspend fun update(route: RunRoute)
+
+    @Query("DELETE FROM routes")
+    suspend fun clear()
+}
+
+@Dao
+interface RunDao {
+    @Query("SELECT * FROM runs ORDER BY startedAt DESC")
+    fun observeAll(): Flow<List<Run>>
+
+    @Query("SELECT * FROM runs WHERE id = :id")
+    suspend fun get(id: Long): Run?
+
+    @Query("SELECT * FROM runs WHERE routeId = :routeId AND id != :exclude ORDER BY startedAt DESC LIMIT 1")
+    suspend fun previousOnRoute(routeId: Long, exclude: Long): Run?
+
+    @Query("SELECT * FROM runs")
+    suspend fun all(): List<Run>
+
+    @Insert
+    suspend fun insert(run: Run): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(runs: List<Run>)
+
+    @Delete
+    suspend fun delete(run: Run)
+
+    @Query("DELETE FROM runs")
+    suspend fun clear()
+}
+
+@Dao
+interface PlanDao {
+    @Query("SELECT * FROM plan_items WHERE date = :date ORDER BY slot, sortOrder, id")
+    fun observe(date: String): Flow<List<PlanItem>>
+
+    @Query("SELECT * FROM plan_items WHERE date = :date ORDER BY slot, sortOrder, id")
+    suspend fun forDate(date: String): List<PlanItem>
+
+    @Query("SELECT * FROM plan_items")
+    suspend fun all(): List<PlanItem>
+
+    @Insert
+    suspend fun insert(item: PlanItem): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(items: List<PlanItem>)
+
+    @Update
+    suspend fun update(item: PlanItem)
+
+    @Delete
+    suspend fun delete(item: PlanItem)
+
+    @Query("DELETE FROM plan_items")
+    suspend fun clear()
+}
+
+@Dao
 interface ReviewDao {
     @Query("SELECT * FROM reviews WHERE date = :date")
     fun observe(date: String): Flow<DayReview?>

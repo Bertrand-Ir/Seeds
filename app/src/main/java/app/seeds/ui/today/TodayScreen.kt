@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Widgets
 import app.seeds.ui.rememberResumeTick
+import app.seeds.ui.plan.TodayPlanCard
 import app.seeds.widget.Widgets
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -102,6 +103,7 @@ fun TodayScreen(
     onOpenReview: () -> Unit,
     onPlantSeed: () -> Unit,
     onOpenUpdate: () -> Unit,
+    onOpenPlan: (String) -> Unit,
 ) {
     val ctx = LocalContext.current
     val c = ctx.seeds
@@ -110,6 +112,9 @@ fun TodayScreen(
     val now by rememberNow(1000)
     val bucket = now / 10_000
     val o = remember(data, bucket, data.sessions) { Engine.overview(data.clock, data.seeds, data.sessions, now) }
+    val moneyFlow = remember(o.day) { c.money.range(data.clock.dayStart(o.day), data.clock.dayEnd(o.day)) }
+    val todayMoney by moneyFlow.collectAsStateWithLifecycle(emptyList())
+    val spentToday = todayMoney.filter { it.direction == app.seeds.data.db.Direction.OUT }.sumOf { it.amount + it.fee }
     val update by c.updates.available.collectAsStateWithLifecycle()
 
     var showSwitch by rememberSaveable { mutableStateOf(false) }
@@ -146,8 +151,14 @@ fun TodayScreen(
             }
         }
 
+        // The day's summary lives at the top, always — review it any time, not just at night.
         item {
             Spacer(Modifier.height(16.dp))
+            SummaryCard(o, now, spentToday, settings.currency, colorOf, onOpenReview)
+        }
+
+        item {
+            Spacer(Modifier.height(Dimens.gap))
             NowCard(o, now, onSwitch = { showSwitch = true }, onStart = { id -> scope.launch { c.tracking.start(id) } }, onBreak = {
                 scope.launch { c.tracking.start(null, SessionKind.BREAK) }
             }, onStop = { scope.launch { c.tracking.stop() } })
@@ -155,21 +166,7 @@ fun TodayScreen(
 
         item {
             Spacer(Modifier.height(Dimens.gap))
-            SeedsCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("YOUR DAY", style = SeedsType.overline, color = SeedsTheme.colors.inkMuted, modifier = Modifier.weight(1f))
-                    val left = (o.sleepAt - now).coerceAtLeast(0)
-                    Text(if (left > 0) "${Fmt.duration(left)} until bed" else "Past bedtime", style = SeedsType.caption, color = SeedsTheme.colors.inkMuted)
-                }
-                Spacer(Modifier.height(14.dp))
-                DayStrip(o, colorOf)
-                Spacer(Modifier.height(16.dp))
-                Row {
-                    StatTile("Growing", Fmt.duration(o.focusMs), Modifier.weight(1f))
-                    StatTile("Breaks", Fmt.duration(o.breakMs), Modifier.weight(1f))
-                    StatTile("Drift", Fmt.duration(o.driftMs), Modifier.weight(1f), valueColor = if (o.driftMs > 0) SeedsTheme.colors.drift else SeedsTheme.colors.ink)
-                }
-            }
+            TodayPlanCard(settings, onOpen = { onOpenPlan("today") }, onPlanTomorrow = { onOpenPlan("tomorrow") })
         }
 
         if (showWidgetTip) {
@@ -234,22 +231,6 @@ fun TodayScreen(
             }
         }
 
-        // Evening: the review is ready from two hours before bed.
-        if (now >= o.sleepAt - 2 * 3_600_000L) {
-            item {
-                Spacer(Modifier.height(20.dp))
-                SeedsCard(color = SeedsTheme.colors.surfaceHi, onClick = onOpenReview) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.NightsStay, null, tint = SeedsTheme.colors.accent)
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("Your day is ready to review", style = SeedsType.bodyStrong, color = SeedsTheme.colors.ink)
-                            Text("A minute of honesty before sleep.", style = SeedsType.caption, color = SeedsTheme.colors.inkMuted)
-                        }
-                    }
-                }
-            }
-        }
     }
 
     if (showSwitch) SeedsSheet(onDismiss = { showSwitch = false }) { QuickSwitchContent(settings) { showSwitch = false } }
@@ -271,11 +252,59 @@ private fun Header(s: Settings, o: Overview, now: Long) {
             Text(if (s.name.isBlank()) greeting else "$greeting, ${s.name.substringBefore(' ')}", style = SeedsType.headline, color = SeedsTheme.colors.ink, maxLines = 2)
         }
         Spacer(Modifier.width(12.dp))
-        Box(Modifier.size(60.dp), contentAlignment = Alignment.Center) {
-            Ring((o.score ?: 0) / 100f, SeedsTheme.colors.accent, Modifier.size(60.dp), stroke = 6.dp)
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(o.score?.toString() ?: "–", style = SeedsType.subtitle, color = SeedsTheme.colors.ink)
+        app.seeds.ui.components.SeedMark(26.dp)
+    }
+}
+
+/** Score, verdict, the day's strip and the numbers that matter — tap for the full review. */
+@Composable
+private fun SummaryCard(o: Overview, now: Long, spent: Long, currency: String, colorOf: (Long?) -> Int?, onOpen: () -> Unit) {
+    val c = SeedsTheme.colors
+    val evening = now >= o.sleepAt - 3 * 3_600_000L
+    val headline = when {
+        o.score == null -> "A day of its own."
+        o.score == 0 && !evening -> "The day is open."
+        o.score == 0 -> "Fallow ground — tomorrow is fertile."
+        o.score >= 95 -> "Full bloom."
+        o.score >= 75 -> "Strong growth."
+        o.score >= 45 -> "Something is growing."
+        else -> "A seed is still a seed."
+    }
+    SeedsCard(onClick = onOpen) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(68.dp), contentAlignment = Alignment.Center) {
+                Ring((o.score ?: 0) / 100f, c.accent, Modifier.size(68.dp), stroke = 7.dp)
+                Text(o.score?.toString() ?: "–", style = SeedsType.title, color = c.ink)
             }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text("TODAY SO FAR", style = SeedsType.overline, color = c.inkMuted)
+                Text(headline, style = SeedsType.subtitle, color = c.ink)
+                val left = (o.sleepAt - now).coerceAtLeast(0)
+                Text(
+                    (if (o.dailyCount > 0) "${o.grown}/${o.dailyCount} seeds grown · " else "") +
+                        if (left > 0) "${Fmt.duration(left)} until bed" else "past bedtime",
+                    style = SeedsType.caption, color = c.inkMuted,
+                )
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        DayStrip(o, colorOf)
+        Spacer(Modifier.height(14.dp))
+        Row {
+            StatTile("Growing", Fmt.duration(o.focusMs), Modifier.weight(1f))
+            StatTile("Drift", Fmt.duration(o.driftMs), Modifier.weight(1f), valueColor = if (o.driftMs > 0) c.drift else c.ink)
+            StatTile("Spent", if (spent > 0) Fmt.compactMoney(spent) else "0", Modifier.weight(1f), sub = currency)
+        }
+        Spacer(Modifier.height(14.dp))
+        Row(
+            Modifier.fillMaxWidth().clip(Pill).background(c.surfaceHi).padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Rounded.NightsStay, null, tint = c.accent, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(if (evening) "Review & reflect on today" else "Full review · any time", style = SeedsType.label, color = c.ink, modifier = Modifier.weight(1f))
+            Text("→", style = SeedsType.label, color = c.accent)
         }
     }
 }

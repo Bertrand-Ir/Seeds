@@ -27,6 +27,19 @@ object Alarms {
     private const val RC_CHECKIN = 105
     private const val RC_CHECKIN_TIMEOUT = 106
 
+    private const val RC_RUN = 107
+
+    /** Arms a reminder for the soonest scheduled run route. */
+    suspend fun scheduleRuns(ctx: Context) {
+        cancel(ctx, RC_RUN, ActionReceiver.RUN_REMINDER)
+        val now = System.currentTimeMillis()
+        val next = ctx.seeds.db.routes().active()
+            .filter { it.scheduleMin != null && it.scheduleDays != 0 }
+            .map { r -> r to nextAt(r.scheduleMin!!, now) { d -> r.scheduleDays and (1 shl (d - 1)) != 0 } }
+            .minByOrNull { it.second } ?: return
+        set(ctx, RC_RUN, ActionReceiver.RUN_REMINDER, next.second) { putExtra(ActionReceiver.EXTRA_ROUTE, next.first.id) }
+    }
+
     /** Evening report arrives a little before bedtime, while there's still time to reflect. */
     const val NIGHT_LEAD_MIN = 15
 
@@ -97,6 +110,7 @@ class BootReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.Default).launch {
             try {
                 Alarms.scheduleAll(context, context.seeds.settings.current())
+                Alarms.scheduleRuns(context)
                 Effects.refresh(context)
             } finally {
                 pending.finish()

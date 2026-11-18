@@ -126,6 +126,64 @@ data class Debt(
     val remaining: Long get() = (amount - paid).coerceAtLeast(0)
 }
 
+/** A planned running route. Points are stored as an encoded polyline (precision 5). */
+@Entity(tableName = "routes")
+data class RunRoute(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val encoded: String,
+    /** The points you tapped, so the route can be edited later. */
+    val waypoints: String = "",
+    val distanceM: Double,
+    val followRoads: Boolean = true,
+    val createdAt: Long = System.currentTimeMillis(),
+    /** Optional reminder: minute of day + day mask (bit 0 = Monday). */
+    val scheduleMin: Int? = null,
+    val scheduleDays: Int = 0,
+    val archived: Boolean = false,
+)
+
+/** A finished run. */
+@Entity(tableName = "runs", indices = [Index("startedAt"), Index("routeId")])
+data class Run(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val routeId: Long?,
+    val name: String,
+    val startedAt: Long,
+    val endedAt: Long,
+    /** Time actually running — pauses excluded. */
+    val movingMs: Long,
+    val distanceM: Double,
+    /** Encoded polyline of where you actually went. */
+    val track: String,
+    /** Seconds per completed kilometre, comma-separated. */
+    val splits: String,
+    val steps: Int = 0,
+    val elevationGainM: Double = 0.0,
+    val best1kSec: Int? = null,
+    val best5kSec: Int? = null,
+    val seedId: Long? = null,
+    val note: String? = null,
+) {
+    val paceSecPerKm: Int get() = if (distanceM < 50) 0 else (movingMs / 1000.0 / (distanceM / 1000.0)).toInt()
+    val splitList: List<Int> get() = splits.split(',').mapNotNull { it.toIntOrNull() }
+}
+
+/** One thing planned for a time window of a day — no exact times, because life moves. */
+@Entity(tableName = "plan_items", indices = [Index("date")])
+data class PlanItem(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** Logical day, ISO date. */
+    val date: String,
+    /** [app.seeds.domain.DaySlot] ordinal. */
+    val slot: Int,
+    val title: String,
+    val seedId: Long? = null,
+    val done: Boolean = false,
+    val sortOrder: Int = 0,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
 /** The evening reflection for one logical day (ISO date string). */
 @Entity(tableName = "reviews")
 data class DayReview(

@@ -78,23 +78,9 @@ class ActionReceiver : BroadcastReceiver() {
             }
 
             // --- Drift guard --------------------------------------------------------------------
-            DRIFT_BACK -> {
-                DriftState.snoozeUntil = now + 10 * 60_000L
-                Notifier.cancel(ctx, Notifier.ID_DRIFT)
-            }
-            DRIFT_BREAK -> {
-                val since = DriftState.currentSince.takeIf { it > 0 } ?: now
-                tracking.start(null, SessionKind.BREAK, at = since)
-                DriftState.snoozeUntil = now + 30 * 60_000L
-                Notifier.cancel(ctx, Notifier.ID_DRIFT)
-            }
-            DRIFT_LOG -> {
-                val pkg = DriftState.currentPkg
-                val since = DriftState.currentSince.takeIf { it > 0 } ?: now
-                DriftState.resumeSeedId = tracking.activeNow()?.takeIf { it.kind == SessionKind.SEED }?.seedId
-                tracking.start(null, SessionKind.DRIFT, at = since, source = Session.SOURCE_DRIFT, appPackage = pkg)
-                Notifier.cancel(ctx, Notifier.ID_DRIFT)
-            }
+            DRIFT_BACK -> DriftActions.closing(ctx)
+            DRIFT_BREAK -> DriftActions.breakTime(ctx)
+            DRIFT_LOG -> DriftActions.drifting(ctx)
 
             // --- Money ---------------------------------------------------------------------------
             LABEL -> {
@@ -107,8 +93,16 @@ class ActionReceiver : BroadcastReceiver() {
             // --- Rituals & rhythm -----------------------------------------------------------------
             MORNING -> {
                 val s = c.settings.current()
-                Notifier.morning(ctx, s.name, Effects.overview(ctx, now))
+                DriftState.driftsToday = 0
+                val today = DayClock(s).today(now).toString()
+                val morning = c.db.plan().forDate(today).filter { it.slot == app.seeds.domain.DaySlot.MORNING.ordinal && !it.done }.map { it.title }
+                Notifier.morning(ctx, s.name, Effects.overview(ctx, now), morning)
                 Alarms.scheduleAll(ctx, s)
+            }
+            RUN_REMINDER -> {
+                val id = intent.getLongExtra(EXTRA_ROUTE, -1)
+                c.db.routes().get(id)?.let { r -> Notifier.runReminder(ctx, r.id, r.name, app.seeds.domain.Geo.km(r.distanceM, 1)) }
+                Alarms.scheduleRuns(ctx)
             }
             NIGHT -> {
                 val s = c.settings.current()
@@ -141,6 +135,8 @@ class ActionReceiver : BroadcastReceiver() {
         const val NIGHT = "app.seeds.NIGHT"
         const val WORK_START = "app.seeds.WORK_START"
         const val WORK_END = "app.seeds.WORK_END"
+        const val RUN_REMINDER = "app.seeds.RUN_REMINDER"
+        const val EXTRA_ROUTE = "route"
 
         const val EXTRA_SEED = "seed"
         const val EXTRA_SESSION = "session"

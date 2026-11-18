@@ -28,7 +28,14 @@ class SeedsApp : Application() {
         container.scope.launch {
             container.money.ensureDefaults()
             Alarms.scheduleAll(this@SeedsApp, container.settings.current())
+            Alarms.scheduleRuns(this@SeedsApp)
             Effects.refresh(this@SeedsApp)
+        }
+        // OpenStreetMap tiles: identify ourselves and keep the cache inside the app.
+        org.osmdroid.config.Configuration.getInstance().apply {
+            userAgentValue = "Seeds-Android/${BuildConfig.VERSION_NAME}"
+            osmdroidBasePath = java.io.File(filesDir, "osmdroid")
+            osmdroidTileCache = java.io.File(cacheDir, "osm-tiles")
         }
         UpdateWorker.schedule(this)
     }

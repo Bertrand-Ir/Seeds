@@ -34,6 +34,7 @@ object Notifier {
     const val CH_MONEY = "money"
     const val CH_DAILY = "daily"
     const val CH_UPDATES = "updates"
+    const val CH_RUN = "run"
 
     const val ID_TRACKING = 1
     const val ID_CHECKIN = 2
@@ -42,6 +43,8 @@ object Notifier {
     const val ID_MORNING = 5
     const val ID_NIGHT = 6
     const val ID_UPDATE = 7
+    const val ID_RUN = 8
+    const val ID_RUN_REMINDER = 9
     private const val ID_MONEY_BASE = 10_000
 
     fun moneyId(txnId: Long) = ID_MONEY_BASE + (txnId % 50_000).toInt()
@@ -60,6 +63,7 @@ object Notifier {
                 ch(CH_MONEY, "Money", NotificationManager.IMPORTANCE_HIGH, "Asks what a Mobile Money payment was for."),
                 ch(CH_DAILY, "Morning & evening", NotificationManager.IMPORTANCE_DEFAULT, "Your morning plan and nightly report."),
                 ch(CH_UPDATES, "Updates", NotificationManager.IMPORTANCE_DEFAULT, "When a new version of Seeds is ready."),
+                ch(CH_RUN, "Runs", NotificationManager.IMPORTANCE_LOW, "Live run tracking and run reminders."),
             ),
         )
     }
@@ -183,7 +187,13 @@ object Notifier {
 
     fun drift(ctx: Context, appLabel: String, minutes: Int, during: String?) {
         val text = if (during != null) "You started $during. Still on it, or drifting?" else "It's work hours. Still working, or drifting?"
+        val full = PendingIntent.getActivity(
+            ctx, 7900, app.seeds.ui.drift.DriftActivity.intent(ctx),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         val n = base(ctx, CH_DRIFT)
+            .setFullScreenIntent(full, true)
+            .setContentIntent(full)
             .setContentTitle("$minutes min on $appLabel")
             .setContentText(text)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -240,10 +250,11 @@ object Notifier {
 
     // ---- Rituals ------------------------------------------------------------------------------
 
-    fun morning(ctx: Context, name: String, o: Overview) {
+    fun morning(ctx: Context, name: String, o: Overview, morningPlan: List<String> = emptyList()) {
         val todo = o.daily.count { it.appliesToday } + (o.weekly + o.monthly).count { it.paceTodayMs > 0 && !it.grown }
         val first = o.nextUp?.seed?.name
-        val text = "$todo seeds to grow · ${Fmt.duration(o.plannedTodayMs)} planned." + (first?.let { " Start with $it." } ?: "")
+        val text = "$todo seeds to grow · ${Fmt.duration(o.plannedTodayMs)} planned." +
+            if (morningPlan.isNotEmpty()) " This morning: ${morningPlan.joinToString(", ")}." else (first?.let { " Start with $it." } ?: "")
         val n = base(ctx, CH_DAILY)
             .setContentTitle(if (name.isBlank()) "Good morning" else "Good morning, $name")
             .setContentText(text)
@@ -270,8 +281,21 @@ object Notifier {
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
             .setContentIntent(openApp(ctx, "review", 1))
+            .addAction(0, "Review my day", openApp(ctx, "review", 3))
+            .addAction(0, "Plan tomorrow", openApp(ctx, "plan/tomorrow", 4))
             .build()
         post(ctx, ID_NIGHT, n)
+    }
+
+    fun runReminder(ctx: Context, routeId: Long, name: String, km: String) {
+        val n = base(ctx, CH_DAILY)
+            .setContentTitle("Time to run · $name")
+            .setContentText("$km km planned. Lace up — the route is ready.")
+            .setAutoCancel(true)
+            .setContentIntent(openApp(ctx, "run/start/$routeId", 70))
+            .addAction(0, "Start run", openApp(ctx, "run/start/$routeId", 71))
+            .build()
+        post(ctx, ID_RUN_REMINDER, n)
     }
 
     fun update(ctx: Context, version: String) {

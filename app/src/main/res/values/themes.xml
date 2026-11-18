@@ -12,6 +12,13 @@
         <item name="postSplashScreenTheme">@style/Theme.Seeds</item>
     </style>
 
+    <!-- Full-screen drift check: always dark, no transparency -->
+    <style name="Theme.Seeds.Drift" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/seeds_soil</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
     <!-- Floating quick-switch sheet launched from the widget / notifications -->
     <style name="Theme.Seeds.Sheet" parent="Theme.Seeds">
         <item name="android:windowIsTranslucent">true</item>

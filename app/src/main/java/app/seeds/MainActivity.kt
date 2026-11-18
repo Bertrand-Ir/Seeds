@@ -65,6 +65,12 @@ import app.seeds.ui.you.AppsPickerScreen
 import app.seeds.ui.you.SeedEditorScreen
 import app.seeds.ui.you.UpdateSheet
 import app.seeds.ui.you.YouScreen
+import app.seeds.ui.plan.PlanScreen
+import app.seeds.ui.run.LiveRunScreen
+import app.seeds.ui.run.RoutePlannerScreen
+import app.seeds.ui.run.RunDetailScreen
+import app.seeds.ui.run.RunScreen
+import androidx.compose.material.icons.automirrored.rounded.DirectionsRun
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -117,6 +123,7 @@ class MainActivity : ComponentActivity() {
 private enum class Tab(val label: String, val icon: ImageVector) {
     Today("Today", Icons.Rounded.WbSunny),
     Garden("Garden", Icons.Rounded.Spa),
+    Run("Run", Icons.AutoMirrored.Rounded.DirectionsRun),
     Money("Money", Icons.Rounded.AccountBalanceWallet),
     You("You", Icons.Rounded.Person),
 }
@@ -134,6 +141,9 @@ private fun SeedsNav(settings: Settings, route: String?, onRouteHandled: () -> U
             route == "review" -> nav.navigate("review/today")
             route == "update" -> showUpdate = true
             route.startsWith("txn/") -> { tab = Tab.Money; txnSheet = route.removePrefix("txn/").toLongOrNull() }
+            route.startsWith("plan/") -> nav.navigate(route)
+            route == "run/live" -> { tab = Tab.Run; nav.navigate("run/live/${app.seeds.run.RunState.live.value?.routeId ?: 0}") }
+            route.startsWith("run/start/") -> { tab = Tab.Run; nav.navigate("run/live/${route.removePrefix("run/start/")}") }
         }
         if (route != null) onRouteHandled()
     }
@@ -143,8 +153,19 @@ private fun SeedsNav(settings: Settings, route: String?, onRouteHandled: () -> U
             Box(Modifier.fillMaxSize()) {
                 Crossfade(tab, animationSpec = tween(220), label = "tabs") { t ->
                     when (t) {
-                        Tab.Today -> TodayScreen(settings, onOpenReview = { nav.navigate("review/today") }, onPlantSeed = { nav.navigate("seed/0") }, onOpenUpdate = { showUpdate = true })
+                        Tab.Today -> TodayScreen(
+                            settings,
+                            onOpenReview = { nav.navigate("review/today") },
+                            onPlantSeed = { nav.navigate("seed/0") },
+                            onOpenUpdate = { showUpdate = true },
+                            onOpenPlan = { nav.navigate("plan/$it") },
+                        )
                         Tab.Garden -> GardenScreen(settings)
+                        Tab.Run -> RunScreen(
+                            onPlanRoute = { nav.navigate("route/$it") },
+                            onStartRun = { nav.navigate("run/live/$it") },
+                            onOpenRun = { nav.navigate("run/$it") },
+                        )
                         Tab.Money -> MoneyScreen(settings, onOpenTxn = { txnSheet = it }, onOpenDebts = { nav.navigate("debts") })
                         Tab.You -> YouScreen(
                             settings,
@@ -160,7 +181,23 @@ private fun SeedsNav(settings: Settings, route: String?, onRouteHandled: () -> U
         }
         composable("review/{date}", arguments = listOf(navArgument("date") { type = NavType.StringType })) { e ->
             val d = e.arguments?.getString("date")
-            ReviewScreen(settings, d.takeIf { it != "today" }) { nav.popBackStack() }
+            ReviewScreen(settings, d.takeIf { it != "today" }, onBack = { nav.popBackStack() }, onPlanTomorrow = { nav.navigate("plan/tomorrow") })
+        }
+        composable("plan/{which}") { e ->
+            PlanScreen(settings, e.arguments?.getString("which") ?: "tomorrow") { nav.popBackStack() }
+        }
+        composable("route/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { e ->
+            RoutePlannerScreen(e.arguments?.getLong("id") ?: 0L) { nav.popBackStack() }
+        }
+        composable("run/live/{routeId}", arguments = listOf(navArgument("routeId") { type = NavType.LongType })) { e ->
+            LiveRunScreen(
+                e.arguments?.getLong("routeId") ?: 0L,
+                onBack = { nav.popBackStack() },
+                onFinished = { id -> nav.popBackStack(); nav.navigate("run/$id") },
+            )
+        }
+        composable("run/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { e ->
+            RunDetailScreen(e.arguments?.getLong("id") ?: 0L) { nav.popBackStack() }
         }
         composable("seed/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { e ->
             SeedEditorScreen(e.arguments?.getLong("id") ?: 0L) { nav.popBackStack() }
@@ -194,7 +231,7 @@ private fun BottomBar(selected: Tab, modifier: Modifier, onSelect: (Tab) -> Unit
                     .clip(RoundedCornerShape(26.dp))
                     .background(if (sel) c.accent else androidx.compose.ui.graphics.Color.Transparent)
                     .clickable(remember { MutableInteractionSource() }, indication = null) { onSelect(t) }
-                    .padding(horizontal = if (sel) 18.dp else 16.dp, vertical = 12.dp),
+                    .padding(horizontal = if (sel) 16.dp else 13.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(t.icon, t.label, tint = if (sel) c.onAccent else c.inkMuted, modifier = Modifier.size(22.dp))

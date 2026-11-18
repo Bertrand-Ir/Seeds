@@ -119,7 +119,10 @@ class TrackerService : Service() {
         val minutes = ((now - since) / 60_000).toInt()
         if (minutes < s.driftThresholdMin) return
         DriftState.promptedStint = since
-        Notifier.drift(this, AppLabels.label(this, pkg), minutes, focusSeed?.name)
+        // A full-screen pause, not a swipe-away notification. Falls back to a full-screen-intent alert.
+        if (!app.seeds.ui.drift.DriftActivity.tryShow(this)) {
+            Notifier.drift(this, AppLabels.label(this, pkg), minutes, focusSeed?.name)
+        }
     }
 
     private fun stopSelfSafely() {

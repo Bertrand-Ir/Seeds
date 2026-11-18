@@ -7,6 +7,9 @@ import app.seeds.data.db.Debt
 import app.seeds.data.db.DebtDirection
 import app.seeds.data.db.Direction
 import app.seeds.data.db.Period
+import app.seeds.data.db.PlanItem
+import app.seeds.data.db.Run
+import app.seeds.data.db.RunRoute
 import app.seeds.data.db.Seed
 import app.seeds.data.db.SeedsDatabase
 import app.seeds.data.db.Session
@@ -49,6 +52,22 @@ object Backup {
                 .put("note", it.note ?: JSONObject.NULL).put("createdAt", it.createdAt).put("dueAt", it.dueAt ?: JSONObject.NULL)
                 .put("paid", it.paid).put("settledAt", it.settledAt ?: JSONObject.NULL)
         }))
+        root.put("routes", JSONArray(db.routes().all().map {
+            JSONObject().put("id", it.id).put("name", it.name).put("encoded", it.encoded).put("waypoints", it.waypoints)
+                .put("distanceM", it.distanceM).put("followRoads", it.followRoads).put("createdAt", it.createdAt)
+                .put("scheduleMin", it.scheduleMin ?: JSONObject.NULL).put("scheduleDays", it.scheduleDays).put("archived", it.archived)
+        }))
+        root.put("runs", JSONArray(db.runs().all().map {
+            JSONObject().put("id", it.id).put("routeId", it.routeId ?: JSONObject.NULL).put("name", it.name).put("startedAt", it.startedAt)
+                .put("endedAt", it.endedAt).put("movingMs", it.movingMs).put("distanceM", it.distanceM).put("track", it.track)
+                .put("splits", it.splits).put("steps", it.steps).put("elevationGainM", it.elevationGainM)
+                .put("best1kSec", it.best1kSec ?: JSONObject.NULL).put("best5kSec", it.best5kSec ?: JSONObject.NULL)
+                .put("seedId", it.seedId ?: JSONObject.NULL).put("note", it.note ?: JSONObject.NULL)
+        }))
+        root.put("plan", JSONArray(db.plan().all().map {
+            JSONObject().put("id", it.id).put("date", it.date).put("slot", it.slot).put("title", it.title)
+                .put("seedId", it.seedId ?: JSONObject.NULL).put("done", it.done).put("sortOrder", it.sortOrder).put("createdAt", it.createdAt)
+        }))
         root.put("reviews", JSONArray(db.reviews().all().map {
             JSONObject().put("date", it.date).put("mood", it.mood).put("win", it.win).put("lesson", it.lesson)
                 .put("score", it.score ?: JSONObject.NULL).put("createdAt", it.createdAt)
@@ -65,6 +84,27 @@ object Backup {
 
         db.withTransaction {
             db.sessions().clear(); db.seeds().clear(); db.txns().clear(); db.categories().clear(); db.debts().clear(); db.reviews().clear()
+            db.routes().clear(); db.runs().clear(); db.plan().clear()
+            fun JSONObject.intOrNull(k: String) = if (isNull(k) || !has(k)) null else getInt(k)
+            root.optJSONArray("routes")?.let { a ->
+                db.routes().insertAll(a.objects().map {
+                    RunRoute(it.getLong("id"), it.getString("name"), it.getString("encoded"), it.optString("waypoints"), it.getDouble("distanceM"),
+                        it.optBoolean("followRoads", true), it.getLong("createdAt"), it.intOrNull("scheduleMin"), it.optInt("scheduleDays"), it.optBoolean("archived"))
+                })
+            }
+            root.optJSONArray("runs")?.let { a ->
+                db.runs().insertAll(a.objects().map {
+                    Run(it.getLong("id"), it.longOrNull("routeId"), it.getString("name"), it.getLong("startedAt"), it.getLong("endedAt"),
+                        it.getLong("movingMs"), it.getDouble("distanceM"), it.getString("track"), it.getString("splits"), it.optInt("steps"),
+                        it.optDouble("elevationGainM", 0.0), it.intOrNull("best1kSec"), it.intOrNull("best5kSec"), it.longOrNull("seedId"), it.strOrNull("note"))
+                })
+            }
+            root.optJSONArray("plan")?.let { a ->
+                db.plan().insertAll(a.objects().map {
+                    PlanItem(it.getLong("id"), it.getString("date"), it.getInt("slot"), it.getString("title"), it.longOrNull("seedId"),
+                        it.getBoolean("done"), it.getInt("sortOrder"), it.getLong("createdAt"))
+                })
+            }
             db.seeds().insertAll(root.getJSONArray("seeds").objects().map {
                 Seed(it.getLong("id"), it.getString("name"), it.getString("icon"), it.getInt("color"), it.getInt("targetMinutes"),
                     Period.valueOf(it.getString("period")), it.getBoolean("focus"), it.getInt("activeDays"), it.getBoolean("archived"),

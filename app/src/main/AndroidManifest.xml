@@ -22,6 +22,14 @@
     <!-- Mobile Money (MoMo) SMS -->
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.READ_SMS" />
+    <!-- Runs: GPS tracking (foreground only, while a run is active) and cadence -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.sensor.stepcounter" android:required="false" />
+
     <!-- Money popup over other apps, and on the lock screen -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
@@ -84,6 +92,19 @@
             android:taskAffinity="app.seeds.money"
             android:theme="@style/Theme.Seeds.Sheet"
             android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".ui.drift.DriftActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:taskAffinity="app.seeds.drift"
+            android:theme="@style/Theme.Seeds.Drift" />
+
+        <service
+            android:name=".run.RunService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
 
         <service
             android:name=".tracking.TrackerService"

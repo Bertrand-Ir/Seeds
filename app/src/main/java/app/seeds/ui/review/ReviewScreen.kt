@@ -78,7 +78,7 @@ fun verdict(score: Int?): Pair<String, String> = when {
 
 /** The nightly report: what you planned, what you actually did, and a moment to reflect. */
 @Composable
-fun ReviewScreen(settings: Settings, dateIso: String?, onBack: () -> Unit) {
+fun ReviewScreen(settings: Settings, dateIso: String?, onBack: () -> Unit, onPlanTomorrow: () -> Unit = {}) {
     val ctx = LocalContext.current
     val c = ctx.seeds
     val scope = rememberCoroutineScope()
@@ -262,6 +262,8 @@ fun ReviewScreen(settings: Settings, dateIso: String?, onBack: () -> Unit) {
                     "Tomorrow starts at ${Fmt.clockOfDay(settings.wakeMin)}." + (first?.let { " First seed: $it." } ?: ""),
                     style = SeedsType.body, color = SeedsTheme.colors.inkMuted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
                 )
+                Spacer(Modifier.height(14.dp))
+                PillButton("Plan tomorrow", onPlanTomorrow, Modifier.fillMaxWidth(), style = app.seeds.ui.components.ButtonStyle.Secondary)
             }
         }
     }
