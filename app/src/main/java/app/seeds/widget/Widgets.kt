@@ -24,6 +24,10 @@ import app.seeds.notify.Notifier
 import app.seeds.tracking.ActionReceiver
 import app.seeds.tracking.Effects
 import app.seeds.ui.theme.SeedPalette
+import android.app.PendingIntent
+import app.seeds.data.db.Txn
+import app.seeds.seeds
+import app.seeds.ui.money.MoneyPromptActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -75,13 +79,29 @@ object Widgets {
         val todayIds = mgr.getAppWidgetIds(ComponentName(ctx, TodayWidget::class.java))
         if (nowIds.isEmpty() && todayIds.isEmpty()) return
         val o = runCatching { Effects.overview(ctx) }.getOrNull() ?: return
+        val unlabeled = runCatching { ctx.seeds.money.unlabeledNow() }.getOrDefault(emptyList())
 
         for (id in nowIds) {
+            // Narrow → compact. Wide but short → one slim row. Wide and tall enough → standard.
             val views = if (Build.VERSION.SDK_INT >= 31) {
-                RemoteViews(mapOf(SizeF(100f, 80f) to small(ctx, o), SizeF(200f, 110f) to standard(ctx, o)))
+                RemoteViews(
+                    mapOf(
+                        SizeF(100f, 48f) to standard(ctx, o, unlabeled, slim = true),
+                        SizeF(100f, 120f) to small(ctx, o),
+                        SizeF(180f, 48f) to standard(ctx, o, unlabeled, slim = true),
+                        SizeF(180f, 200f) to standard(ctx, o, unlabeled, slim = false),
+                    ),
+                )
             } else {
-                val w = mgr.getAppWidgetOptions(id).getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
-                if (w in 1..199) small(ctx, o) else standard(ctx, o)
+                val opts = mgr.getAppWidgetOptions(id)
+                val w = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
+                val h = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT)
+                when {
+                    w in 1..179 && h in 1..119 -> standard(ctx, o, unlabeled, slim = true)
+                    w in 1..179 -> small(ctx, o)
+                    h in 1..199 -> standard(ctx, o, unlabeled, slim = true)
+                    else -> standard(ctx, o, unlabeled, slim = false)
+                }
             }
             mgr.updateAppWidget(id, views)
         }
@@ -125,33 +145,46 @@ object Widgets {
 
     // ------------------------------------------------------------------------------------------
 
-    private fun standard(ctx: Context, o: Overview): RemoteViews {
-        val v = RemoteViews(ctx.packageName, R.layout.widget_now)
+    /** Standard (tall enough) and slim (one row) share ids; slim simply has no label/progress views. */
+    private fun standard(ctx: Context, o: Overview, unlabeled: List<Txn>, slim: Boolean): RemoteViews {
+        val v = RemoteViews(ctx.packageName, if (slim) R.layout.widget_now_wide else R.layout.widget_now)
         val l = look(ctx, o)
         base(v, l)
         v.setOnClickPendingIntent(android.R.id.background, Notifier.openApp(ctx, code = 90))
-        v.setTextColor(R.id.label, l.muted)
+        if (!slim) v.setTextColor(R.id.label, l.muted)
         v.setTextColor(R.id.seed_name, l.ink)
         v.setTextColor(R.id.timer, l.ink)
         v.setTextColor(R.id.idle_big, l.ink)
         v.setTextColor(R.id.detail, l.muted)
 
+        // MoMo payments waiting for a label — the little yellow pill, top right.
+        if (unlabeled.isNotEmpty()) {
+            v.setViewVisibility(R.id.money, View.VISIBLE)
+            v.setTextViewText(R.id.money, if (slim) "${unlabeled.size} MoMo" else "${unlabeled.size} MoMo to label")
+            v.setOnClickPendingIntent(
+                R.id.money,
+                PendingIntent.getActivity(ctx, 96, MoneyPromptActivity.intent(ctx, unlabeled.first().id), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE),
+            )
+        } else v.setViewVisibility(R.id.money, View.GONE)
+
         val a = o.active
         if (a != null) {
-            v.setTextViewText(R.id.label, "NOW")
+            if (!slim) v.setTextViewText(R.id.label, "NOW")
             v.setTextViewText(R.id.seed_name, title(o))
             v.setViewVisibility(R.id.timer, View.VISIBLE)
             v.setViewVisibility(R.id.idle_big, View.GONE)
             v.setChronometer(R.id.timer, SystemClock.elapsedRealtime() - (System.currentTimeMillis() - a.startedAt), null, true)
-            v.setViewVisibility(R.id.progress, View.GONE)
+            if (!slim) v.setViewVisibility(R.id.progress, View.GONE)
             val st = o.activeStat
             if (st != null && st.targetMs > 0) {
-                v.setViewVisibility(R.id.progress_ink, View.VISIBLE)
-                v.setProgressBar(R.id.progress_ink, 1000, (st.progress * 1000).toInt(), false)
+                if (!slim) {
+                    v.setViewVisibility(R.id.progress_ink, View.VISIBLE)
+                    v.setProgressBar(R.id.progress_ink, 1000, (st.progress * 1000).toInt(), false)
+                }
                 val per = when (st.seed.period) { Period.DAILY -> "today"; Period.WEEKLY -> "this week"; Period.MONTHLY -> "this month" }
-                v.setTextViewText(R.id.detail, if (st.grown) "Grown ✓" else "${Fmt.duration(st.remainingMs)} left $per")
+                v.setTextViewText(R.id.detail, if (st.grown) "Grown ✓" else if (slim) "${Fmt.duration(st.remainingMs)} left" else "${Fmt.duration(st.remainingMs)} left $per")
             } else {
-                v.setViewVisibility(R.id.progress_ink, View.GONE)
+                if (!slim) v.setViewVisibility(R.id.progress_ink, View.GONE)
                 v.setTextViewText(R.id.detail, "since ${Fmt.clock(a.startedAt)}")
             }
             v.setViewVisibility(R.id.actions_active, View.VISIBLE)
@@ -159,19 +192,21 @@ object Widgets {
             v.setOnClickPendingIntent(R.id.btn_switch, Notifier.quickSwitch(ctx))
             v.setOnClickPendingIntent(R.id.btn_stop, Notifier.action(ctx, ActionReceiver.STOP, 91))
         } else {
-            v.setTextViewText(R.id.label, "TODAY")
+            if (!slim) v.setTextViewText(R.id.label, "TODAY")
             v.setTextViewText(R.id.seed_name, "Nothing growing")
             v.setViewVisibility(R.id.timer, View.GONE)
             v.setViewVisibility(R.id.idle_big, View.VISIBLE)
-            v.setViewVisibility(R.id.progress_ink, View.GONE)
+            if (!slim) v.setViewVisibility(R.id.progress_ink, View.GONE)
             if (o.dailyCount > 0) {
                 v.setTextViewText(R.id.idle_big, "${o.grown} of ${o.dailyCount}")
-                v.setViewVisibility(R.id.progress, View.VISIBLE)
-                v.setProgressBar(R.id.progress, 1000, o.grown * 1000 / o.dailyCount, false)
-                v.setTextViewText(R.id.detail, "seeds grown · ${Fmt.duration(o.focusMs)} so far")
+                if (!slim) {
+                    v.setViewVisibility(R.id.progress, View.VISIBLE)
+                    v.setProgressBar(R.id.progress, 1000, o.grown * 1000 / o.dailyCount, false)
+                }
+                v.setTextViewText(R.id.detail, if (slim) "grown" else "seeds grown · ${Fmt.duration(o.focusMs)} so far")
             } else {
                 v.setTextViewText(R.id.idle_big, Fmt.duration(o.focusMs))
-                v.setViewVisibility(R.id.progress, View.GONE)
+                if (!slim) v.setViewVisibility(R.id.progress, View.GONE)
                 v.setTextViewText(R.id.detail, "grown today")
             }
             v.setViewVisibility(R.id.actions_active, View.GONE)
