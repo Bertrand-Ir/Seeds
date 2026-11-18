@@ -1,11 +1,9 @@
 package app.seeds.widget
 
-import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
-import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -20,16 +18,11 @@ import androidx.core.content.ContextCompat
 import app.seeds.R
 import app.seeds.data.db.Period
 import app.seeds.data.db.SessionKind
-import app.seeds.data.db.Txn
 import app.seeds.domain.Fmt
 import app.seeds.domain.Overview
-import app.seeds.domain.SeedStat
 import app.seeds.notify.Notifier
-import app.seeds.seeds
 import app.seeds.tracking.ActionReceiver
-import app.seeds.tracking.AppLabels
 import app.seeds.tracking.Effects
-import app.seeds.ui.money.MoneyPromptActivity
 import app.seeds.ui.theme.SeedPalette
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,20 +36,18 @@ class NowWidget : AppWidgetProvider() {
 
 class TodayWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) = Widgets.refreshAsync(context, goAsync())
-    override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, id: Int, options: Bundle) =
-        Widgets.refreshAsync(context, goAsync())
 }
 
 /**
- * Widget design: one card, three sizes, no dead space. While something grows, the whole card
- * takes the seed's color — the same language as the Now card in the app.
+ * Home-screen widgets, kept deliberately simple.
+ *
+ * Now: what's growing + a live timer + Switch/Done. Idle: today's progress + one "start next" button.
+ * While something grows, the card takes that seed's color.
+ * Today: the day score ring and one line.
  */
 object Widgets {
-    private enum class Size { SMALL, MEDIUM, LARGE }
-
     private const val INK = 0xFF0E1210.toInt()
     private const val INK_MUTED = 0xB30E1210.toInt()
-    private const val INK_SOFT = 0x260E1210
 
     fun placed(ctx: Context): Boolean {
         val mgr = AppWidgetManager.getInstance(ctx)
@@ -84,222 +75,174 @@ object Widgets {
         val todayIds = mgr.getAppWidgetIds(ComponentName(ctx, TodayWidget::class.java))
         if (nowIds.isEmpty() && todayIds.isEmpty()) return
         val o = runCatching { Effects.overview(ctx) }.getOrNull() ?: return
-        val unlabeled = runCatching { ctx.seeds.money.unlabeledNow() }.getOrDefault(emptyList())
 
         for (id in nowIds) {
             val views = if (Build.VERSION.SDK_INT >= 31) {
-                // The launcher picks the biggest layout that fits — the card is always full.
-                RemoteViews(
-                    mapOf(
-                        SizeF(100f, 80f) to now(ctx, o, unlabeled, Size.SMALL),
-                        SizeF(220f, 100f) to now(ctx, o, unlabeled, Size.MEDIUM),
-                        SizeF(220f, 250f) to now(ctx, o, unlabeled, Size.LARGE),
-                    ),
-                )
+                RemoteViews(mapOf(SizeF(100f, 80f) to small(ctx, o), SizeF(200f, 110f) to standard(ctx, o)))
             } else {
-                val opts = mgr.getAppWidgetOptions(id)
-                val w = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
-                val h = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT)
-                now(ctx, o, unlabeled, when { w in 1..219 -> Size.SMALL; h >= 250 -> Size.LARGE; else -> Size.MEDIUM })
+                val w = mgr.getAppWidgetOptions(id).getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
+                if (w in 1..199) small(ctx, o) else standard(ctx, o)
             }
             mgr.updateAppWidget(id, views)
         }
-        if (todayIds.isNotEmpty()) mgr.updateAppWidget(todayIds, today(ctx, o, unlabeled))
+        if (todayIds.isNotEmpty()) mgr.updateAppWidget(todayIds, today(ctx, o))
     }
-
-    private fun moneyPopup(ctx: Context, txn: Txn): PendingIntent = PendingIntent.getActivity(
-        ctx, 96, MoneyPromptActivity.intent(ctx, txn.id), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-    )
 
     private fun startSeed(ctx: Context, seedId: Long, code: Int) =
         Notifier.action(ctx, ActionReceiver.START, code) { putExtra(ActionReceiver.EXTRA_SEED, seedId) }
 
-    // ------------------------------------------------------------------------------------------
-    // Now
-    // ------------------------------------------------------------------------------------------
+    private class Look(val fill: Int?, val bg: Int, val ink: Int, val muted: Int, val accent: Int)
 
-    private fun now(ctx: Context, o: Overview, unlabeled: List<Txn>, size: Size): RemoteViews {
-        val layout = when (size) { Size.SMALL -> R.layout.widget_now_small; Size.MEDIUM -> R.layout.widget_now; Size.LARGE -> R.layout.widget_now_large }
-        val v = RemoteViews(ctx.packageName, layout)
-        v.setOnClickPendingIntent(android.R.id.background, Notifier.openApp(ctx, code = 90))
-
-        val active = o.active
-        val seed = o.activeSeed
+    private fun look(ctx: Context, o: Overview): Look {
+        val a = o.active
         val fill = when {
-            active == null -> null
-            active.kind == SessionKind.SEED -> seed?.let { SeedPalette.fill(it.color) } ?: SeedPalette.fill(0)
-            active.kind == SessionKind.BREAK -> 0xFF8CCBFF.toInt()
+            a == null -> null
+            a.kind == SessionKind.SEED -> SeedPalette.fill(o.activeSeed?.color ?: 0)
+            a.kind == SessionKind.BREAK -> 0xFF8CCBFF.toInt()
             else -> 0xFFFF8A75.toInt()
         }
-        val surface = ContextCompat.getColor(ctx, R.color.widget_bg)
-        val ink = fill?.let { INK } ?: ContextCompat.getColor(ctx, R.color.widget_ink)
-        val muted = fill?.let { INK_MUTED } ?: ContextCompat.getColor(ctx, R.color.widget_muted)
-        val accent = fill?.let { INK } ?: ContextCompat.getColor(ctx, R.color.widget_accent)
+        return if (fill != null) Look(fill, fill, INK, INK_MUTED, INK)
+        else Look(
+            null,
+            ContextCompat.getColor(ctx, R.color.widget_bg),
+            ContextCompat.getColor(ctx, R.color.widget_ink),
+            ContextCompat.getColor(ctx, R.color.widget_muted),
+            ContextCompat.getColor(ctx, R.color.widget_accent),
+        )
+    }
 
-        v.setInt(R.id.bg, "setColorFilter", fill ?: surface)
-        v.setInt(R.id.mark, "setColorFilter", accent)
-        v.setTextColor(R.id.seed_name, ink)
-        v.setTextColor(R.id.timer, ink)
-        v.setTextColor(R.id.idle_big, ink)
+    private fun title(o: Overview): String = when (o.active?.kind) {
+        SessionKind.SEED -> o.activeSeed?.name ?: "Untitled"
+        SessionKind.BREAK -> "On a break"
+        SessionKind.DRIFT -> "Drifting"
+        null -> ""
+    }
 
-        if (size != Size.SMALL) {
-            v.setTextColor(R.id.label, muted)
-            v.setTextColor(R.id.score, ink)
-            v.setTextColor(R.id.detail, muted)
-            v.setTextViewText(R.id.score, o.score?.let { "$it" } ?: "")
-            if (unlabeled.isNotEmpty()) {
-                v.setViewVisibility(R.id.money, View.VISIBLE)
-                v.setTextViewText(R.id.money, "${unlabeled.size} MoMo to label")
-                v.setOnClickPendingIntent(R.id.money, moneyPopup(ctx, unlabeled.first()))
-            } else v.setViewVisibility(R.id.money, View.GONE)
-        }
+    private fun base(v: RemoteViews, l: Look) {
+        v.setInt(R.id.bg, "setColorFilter", l.bg)
+        v.setInt(R.id.mark, "setColorFilter", l.accent)
+    }
 
-        if (active != null) {
-            val title = when (active.kind) {
-                SessionKind.SEED -> seed?.name ?: "Untitled"
-                SessionKind.BREAK -> "On a break"
-                SessionKind.DRIFT -> "Drifting" + (active.appPackage?.let { " · " + AppLabels.label(ctx, it) } ?: "")
-            }
-            v.setTextViewText(R.id.seed_name, title)
+    // ------------------------------------------------------------------------------------------
+
+    private fun standard(ctx: Context, o: Overview): RemoteViews {
+        val v = RemoteViews(ctx.packageName, R.layout.widget_now)
+        val l = look(ctx, o)
+        base(v, l)
+        v.setOnClickPendingIntent(android.R.id.background, Notifier.openApp(ctx, code = 90))
+        v.setTextColor(R.id.label, l.muted)
+        v.setTextColor(R.id.seed_name, l.ink)
+        v.setTextColor(R.id.timer, l.ink)
+        v.setTextColor(R.id.idle_big, l.ink)
+        v.setTextColor(R.id.detail, l.muted)
+
+        val a = o.active
+        if (a != null) {
+            v.setTextViewText(R.id.label, "NOW")
+            v.setTextViewText(R.id.seed_name, title(o))
             v.setViewVisibility(R.id.timer, View.VISIBLE)
             v.setViewVisibility(R.id.idle_big, View.GONE)
-            v.setChronometer(R.id.timer, SystemClock.elapsedRealtime() - (System.currentTimeMillis() - active.startedAt), null, true)
-            if (size == Size.SMALL) {
-                v.setTextViewText(R.id.btn_main, "Done")
-                v.setInt(R.id.btn_main, "setBackgroundResource", R.drawable.widget_pill_ink)
-                v.setTextColor(R.id.btn_main, 0xFFFFFFFF.toInt())
-                v.setOnClickPendingIntent(R.id.btn_main, Notifier.action(ctx, ActionReceiver.STOP, 91))
+            v.setChronometer(R.id.timer, SystemClock.elapsedRealtime() - (System.currentTimeMillis() - a.startedAt), null, true)
+            v.setViewVisibility(R.id.progress, View.GONE)
+            val st = o.activeStat
+            if (st != null && st.targetMs > 0) {
+                v.setViewVisibility(R.id.progress_ink, View.VISIBLE)
+                v.setProgressBar(R.id.progress_ink, 1000, (st.progress * 1000).toInt(), false)
+                val per = when (st.seed.period) { Period.DAILY -> "today"; Period.WEEKLY -> "this week"; Period.MONTHLY -> "this month" }
+                v.setTextViewText(R.id.detail, if (st.grown) "Grown ✓" else "${Fmt.duration(st.remainingMs)} left $per")
             } else {
-                v.setTextViewText(R.id.label, "NOW GROWING")
-                v.setViewVisibility(R.id.progress, View.GONE)
-                val stat = o.activeStat
-                if (stat != null && stat.targetMs > 0) {
-                    v.setViewVisibility(R.id.progress_ink, View.VISIBLE)
-                    v.setProgressBar(R.id.progress_ink, 1000, (stat.progress * 1000).toInt(), false)
-                    val per = when (stat.seed.period) { Period.DAILY -> "today"; Period.WEEKLY -> "this week"; Period.MONTHLY -> "this month" }
-                    v.setTextViewText(
-                        R.id.detail,
-                        "${Fmt.duration(stat.doneMs)} of ${Fmt.duration(stat.targetMs)} $per" +
-                            if (stat.grown) " · grown ✓" else " · ${Fmt.duration(stat.remainingMs)} to go",
-                    )
-                } else {
-                    v.setViewVisibility(R.id.progress_ink, View.INVISIBLE)
-                    v.setTextViewText(R.id.detail, "Since ${Fmt.clock(active.startedAt)}")
-                }
-                v.setViewVisibility(R.id.actions_active, View.VISIBLE)
-                v.setViewVisibility(R.id.actions_idle, View.GONE)
-                v.setOnClickPendingIntent(R.id.btn_switch, Notifier.quickSwitch(ctx))
-                v.setOnClickPendingIntent(R.id.btn_stop, Notifier.action(ctx, ActionReceiver.STOP, 91))
+                v.setViewVisibility(R.id.progress_ink, View.GONE)
+                v.setTextViewText(R.id.detail, "since ${Fmt.clock(a.startedAt)}")
             }
+            v.setViewVisibility(R.id.actions_active, View.VISIBLE)
+            v.setViewVisibility(R.id.actions_idle, View.GONE)
+            v.setOnClickPendingIntent(R.id.btn_switch, Notifier.quickSwitch(ctx))
+            v.setOnClickPendingIntent(R.id.btn_stop, Notifier.action(ctx, ActionReceiver.STOP, 91))
         } else {
-            val next = o.nextUp
+            v.setTextViewText(R.id.label, "TODAY")
+            v.setTextViewText(R.id.seed_name, "Nothing growing")
             v.setViewVisibility(R.id.timer, View.GONE)
             v.setViewVisibility(R.id.idle_big, View.VISIBLE)
-            if (size == Size.SMALL) {
-                v.setTextViewText(R.id.seed_name, "Seeds")
-                v.setTextViewText(R.id.idle_big, o.score?.let { "Day $it · ${o.grown}/${o.dailyCount}" } ?: "Nothing growing")
-                v.setInt(R.id.btn_main, "setBackgroundResource", R.drawable.widget_btn_accent)
-                v.setTextColor(R.id.btn_main, ContextCompat.getColor(ctx, R.color.widget_on_accent))
-                if (next != null) {
-                    v.setTextViewText(R.id.btn_main, "▶ ${next.seed.name}")
-                    v.setOnClickPendingIntent(R.id.btn_main, startSeed(ctx, next.seed.id, 92))
-                } else {
-                    v.setTextViewText(R.id.btn_main, "Start")
-                    v.setOnClickPendingIntent(R.id.btn_main, Notifier.quickSwitch(ctx))
-                }
-            } else {
-                v.setTextViewText(R.id.label, "NOTHING GROWING")
-                v.setTextViewText(R.id.seed_name, next?.let { "Next up: ${it.seed.name}" } ?: "All grown today")
-                v.setTextViewText(R.id.idle_big, if (o.dailyCount > 0) "${o.grown} of ${o.dailyCount} grown" else Fmt.duration(o.focusMs))
-                v.setViewVisibility(R.id.progress_ink, View.GONE)
+            v.setViewVisibility(R.id.progress_ink, View.GONE)
+            if (o.dailyCount > 0) {
+                v.setTextViewText(R.id.idle_big, "${o.grown} of ${o.dailyCount}")
                 v.setViewVisibility(R.id.progress, View.VISIBLE)
-                v.setProgressBar(R.id.progress, 1000, if (o.dailyCount == 0) 0 else o.grown * 1000 / o.dailyCount, false)
-                v.setTextViewText(R.id.detail, "${Fmt.duration(o.focusMs)} growing" + if (o.driftMs > 0) " · ${Fmt.duration(o.driftMs)} drift" else "")
-                v.setViewVisibility(R.id.actions_active, View.GONE)
-                v.setViewVisibility(R.id.actions_idle, View.VISIBLE)
-                val picks = (o.daily.filter { it.appliesToday && !it.grown } + o.weekly.filter { !it.grown } + o.monthly.filter { !it.grown })
-                val chipIds = if (size == Size.LARGE) listOf(R.id.chip1) else listOf(R.id.chip1, R.id.chip2)
-                chipIds.forEachIndexed { i, id ->
-                    val p = picks.getOrNull(i)
-                    if (p == null) v.setViewVisibility(id, View.INVISIBLE) else {
-                        v.setViewVisibility(id, View.VISIBLE)
-                        v.setTextViewText(id, "▶  " + p.seed.name)
-                        v.setOnClickPendingIntent(id, startSeed(ctx, p.seed.id, 92 + i))
-                    }
-                }
-                v.setOnClickPendingIntent(R.id.chip3, Notifier.quickSwitch(ctx))
+                v.setProgressBar(R.id.progress, 1000, o.grown * 1000 / o.dailyCount, false)
+                v.setTextViewText(R.id.detail, "seeds grown · ${Fmt.duration(o.focusMs)} so far")
+            } else {
+                v.setTextViewText(R.id.idle_big, Fmt.duration(o.focusMs))
+                v.setViewVisibility(R.id.progress, View.GONE)
+                v.setTextViewText(R.id.detail, "grown today")
             }
+            v.setViewVisibility(R.id.actions_active, View.GONE)
+            v.setViewVisibility(R.id.actions_idle, View.VISIBLE)
+            val next = o.nextUp
+            if (next != null) {
+                v.setTextViewText(R.id.btn_next, "▶  ${next.seed.name}")
+                v.setOnClickPendingIntent(R.id.btn_next, startSeed(ctx, next.seed.id, 92))
+            } else {
+                v.setTextViewText(R.id.btn_next, "Start something")
+                v.setOnClickPendingIntent(R.id.btn_next, Notifier.quickSwitch(ctx))
+            }
+            v.setOnClickPendingIntent(R.id.btn_more, Notifier.quickSwitch(ctx))
         }
-
-        if (size == Size.LARGE) seedRows(ctx, v, o, ink, muted, fill != null)
         return v
     }
 
-    /** Tall widget: today's seeds with progress, each one tap to start. */
-    private fun seedRows(ctx: Context, v: RemoteViews, o: Overview, ink: Int, muted: Int, onColor: Boolean) {
-        v.setTextColor(R.id.list_label, muted)
-        val rows: List<SeedStat> = (o.daily.filter { it.appliesToday } + o.weekly + o.monthly)
-            .filter { it.seed.id != o.activeSeed?.id }
-            .sortedBy { it.grown }
-            .take(4)
-        v.setTextViewText(R.id.list_label, if (o.dailyCount > 0) "TODAY · ${o.grown}/${o.dailyCount} GROWN" else "YOUR SEEDS")
-        val ids = listOf(
-            Row(R.id.r1, R.id.r1_dot, R.id.r1_name, R.id.r1_val, R.id.r1_bar),
-            Row(R.id.r2, R.id.r2_dot, R.id.r2_name, R.id.r2_val, R.id.r2_bar),
-            Row(R.id.r3, R.id.r3_dot, R.id.r3_name, R.id.r3_val, R.id.r3_bar),
-            Row(R.id.r4, R.id.r4_dot, R.id.r4_name, R.id.r4_val, R.id.r4_bar),
-        )
-        ids.forEachIndexed { i, r ->
-            val st = rows.getOrNull(i)
-            if (st == null) { v.setViewVisibility(r.row, View.INVISIBLE); return@forEachIndexed }
-            v.setViewVisibility(r.row, View.VISIBLE)
-            val tone = if (onColor) INK else SeedPalette.fill(st.seed.color)
-            v.setInt(r.dot, "setColorFilter", tone)
-            v.setTextViewText(r.name, st.seed.name)
-            v.setTextColor(r.name, ink)
-            v.setTextViewText(r.value, if (st.grown) "✓ ${Fmt.duration(st.doneMs)}" else "${Fmt.duration(st.doneMs)} / ${Fmt.duration(st.targetMs)}")
-            v.setTextColor(r.value, muted)
-            v.setProgressBar(r.bar, 1000, (st.progress * 1000).toInt(), false)
-            if (Build.VERSION.SDK_INT >= 31) {
-                v.setColorStateList(r.bar, "setProgressTintList", ColorStateList.valueOf(tone))
-                v.setColorStateList(r.bar, "setProgressBackgroundTintList", ColorStateList.valueOf(if (onColor) INK_SOFT else ContextCompat.getColor(ctx, R.color.widget_track)))
+    private fun small(ctx: Context, o: Overview): RemoteViews {
+        val v = RemoteViews(ctx.packageName, R.layout.widget_now_small)
+        val l = look(ctx, o)
+        base(v, l)
+        v.setOnClickPendingIntent(android.R.id.background, Notifier.openApp(ctx, code = 90))
+        v.setTextColor(R.id.seed_name, l.ink)
+        v.setTextColor(R.id.timer, l.ink)
+        v.setTextColor(R.id.idle_big, l.ink)
+        val a = o.active
+        if (a != null) {
+            v.setTextViewText(R.id.seed_name, title(o))
+            v.setViewVisibility(R.id.timer, View.VISIBLE)
+            v.setViewVisibility(R.id.idle_big, View.GONE)
+            v.setChronometer(R.id.timer, SystemClock.elapsedRealtime() - (System.currentTimeMillis() - a.startedAt), null, true)
+            v.setTextViewText(R.id.btn_main, "Done")
+            v.setInt(R.id.btn_main, "setBackgroundResource", R.drawable.widget_pill_ink)
+            v.setTextColor(R.id.btn_main, 0xFFFFFFFF.toInt())
+            v.setOnClickPendingIntent(R.id.btn_main, Notifier.action(ctx, ActionReceiver.STOP, 91))
+        } else {
+            v.setTextViewText(R.id.seed_name, "Seeds")
+            v.setViewVisibility(R.id.timer, View.GONE)
+            v.setViewVisibility(R.id.idle_big, View.VISIBLE)
+            v.setTextViewText(R.id.idle_big, if (o.dailyCount > 0) "${o.grown} of ${o.dailyCount} grown" else "Nothing growing")
+            v.setInt(R.id.btn_main, "setBackgroundResource", R.drawable.widget_btn_accent)
+            v.setTextColor(R.id.btn_main, ContextCompat.getColor(ctx, R.color.widget_on_accent))
+            val next = o.nextUp
+            if (next != null) {
+                v.setTextViewText(R.id.btn_main, "▶  ${next.seed.name}")
+                v.setOnClickPendingIntent(R.id.btn_main, startSeed(ctx, next.seed.id, 92))
+            } else {
+                v.setTextViewText(R.id.btn_main, "Start")
+                v.setOnClickPendingIntent(R.id.btn_main, Notifier.quickSwitch(ctx))
             }
-            v.setOnClickPendingIntent(r.row, startSeed(ctx, st.seed.id, 120 + i))
         }
+        return v
     }
 
-    private data class Row(val row: Int, val dot: Int, val name: Int, val value: Int, val bar: Int)
-
-    // ------------------------------------------------------------------------------------------
-    // Today
     // ------------------------------------------------------------------------------------------
 
-    private fun today(ctx: Context, o: Overview, unlabeled: List<Txn>): RemoteViews {
+    private fun today(ctx: Context, o: Overview): RemoteViews {
         val v = RemoteViews(ctx.packageName, R.layout.widget_today)
         v.setOnClickPendingIntent(android.R.id.background, Notifier.openApp(ctx, "review", 95))
         v.setInt(R.id.bg, "setColorFilter", ContextCompat.getColor(ctx, R.color.widget_bg))
         v.setTextViewText(R.id.score, o.score?.toString() ?: "–")
         v.setImageViewBitmap(R.id.ring, ring(ctx, (o.score ?: 0) / 100f))
-        v.setTextViewText(
-            R.id.summary,
-            when {
-                o.active != null && o.activeSeed != null -> "● ${o.activeSeed.name}"
-                o.dailyCount > 0 -> "${o.grown} of ${o.dailyCount} grown"
-                else -> Fmt.duration(o.focusMs) + " growing"
-            },
-        )
-        if (unlabeled.isNotEmpty()) {
-            v.setTextViewText(R.id.summary2, "● ${unlabeled.size} MoMo to label")
-            v.setOnClickPendingIntent(R.id.summary2, moneyPopup(ctx, unlabeled.first()))
-        } else {
-            v.setTextViewText(R.id.summary2, "${Fmt.duration(o.focusMs)} growing" + if (o.driftMs > 0) " · ${Fmt.duration(o.driftMs)} drift" else "")
-        }
+        v.setTextViewText(R.id.summary, if (o.dailyCount > 0) "${o.grown} of ${o.dailyCount} grown" else "${Fmt.duration(o.focusMs)} growing")
+        v.setTextViewText(R.id.summary2, o.activeSeed?.let { "● ${it.name}" } ?: "")
+        v.setViewVisibility(R.id.summary2, if (o.activeSeed != null) View.VISIBLE else View.GONE)
         return v
     }
 
     private fun ring(ctx: Context, progress: Float): Bitmap {
         val size = 300
-        val stroke = 26f
+        val stroke = 24f
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         val r = RectF(stroke / 2 + 2, stroke / 2 + 2, size - stroke / 2 - 2, size - stroke / 2 - 2)

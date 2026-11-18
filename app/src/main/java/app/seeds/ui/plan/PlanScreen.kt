@@ -27,6 +27,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.Check
@@ -288,7 +289,10 @@ fun PlanRow(item: PlanItem, seed: Seed?, onToggle: (PlanItem) -> Unit, onDelete:
     }
 }
 
-/** On Today: what's planned for the window you're in now, and a peek at the rest. */
+/**
+ * On Today: just what's left in the part of the day you're in. When nothing is planned it shrinks
+ * to one quiet row, so it never competes with the Now card.
+ */
 @Composable
 fun TodayPlanCard(settings: Settings, onOpen: () -> Unit, onPlanTomorrow: () -> Unit) {
     val ctx = LocalContext.current
@@ -303,51 +307,58 @@ fun TodayPlanCard(settings: Settings, onOpen: () -> Unit, onPlanTomorrow: () -> 
     val seeds by c.tracking.seeds.collectAsStateWithLifecycle(emptyList())
     val now = currentSlot()
     val evening = now == DaySlot.EVENING || now == DaySlot.NIGHT
+    val current = items.filter { it.slot == now.ordinal && !it.done }
+    val nextLater = items.filter { it.slot > now.ordinal && !it.done }.minByOrNull { it.slot }
 
-    SeedsCard(onClick = onOpen) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    // Evening with tomorrow unplanned → that's the one thing to suggest.
+    if (evening && tomorrowItems.isEmpty() && current.isEmpty()) {
+        SlimRow(Icons.Rounded.Bedtime, "Plan tomorrow", "Put a few things into morning, noon, evening…", onPlanTomorrow)
+        return
+    }
+    if (current.isEmpty()) {
+        when {
+            items.isEmpty() -> SlimRow(now.icon(), "Plan your day", "No exact times — just what goes where", onOpen)
+            nextLater != null -> SlimRow(
+                now.icon(), "Nothing planned this ${now.label.lowercase()}",
+                "Next: ${DaySlot.entries[nextLater.slot].label.lowercase()} · ${nextLater.title}", onOpen,
+            )
+            else -> SlimRow(now.icon(), "Plan complete for today", "${items.count { it.done }} of ${items.size} done", onOpen)
+        }
+        return
+    }
+
+    SeedsCard(padding = PaddingValues(16.dp)) {
+        Row(Modifier.fillMaxWidth().clickable(onClick = onOpen), verticalAlignment = Alignment.CenterVertically) {
             Icon(now.icon(), null, tint = SeedsTheme.colors.accent, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("${now.label.uppercase()} PLAN", style = SeedsType.overline, color = SeedsTheme.colors.inkMuted, modifier = Modifier.weight(1f))
-            if (items.isNotEmpty()) Text("${items.count { it.done }}/${items.size} today", style = SeedsType.caption, color = SeedsTheme.colors.inkMuted)
+            Text("THIS ${now.label.uppercase()}", style = SeedsType.overline, color = SeedsTheme.colors.inkMuted, modifier = Modifier.weight(1f))
+            Text("Full plan", style = SeedsType.label, color = SeedsTheme.colors.accent)
         }
-        val current = items.filter { it.slot == now.ordinal }
-        if (items.isEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text("Nothing planned for today.", style = SeedsType.bodyStrong, color = SeedsTheme.colors.ink)
-            Text("Put a few things into windows — morning, noon, afternoon…", style = SeedsType.caption, color = SeedsTheme.colors.inkMuted)
-        } else if (current.isEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text("Nothing set for the ${now.label.lowercase()}. Free to choose.", style = SeedsType.body, color = SeedsTheme.colors.inkMuted)
-        } else {
-            current.forEach { item ->
-                PlanRow(item, seeds.firstOrNull { it.id == item.seedId },
-                    onToggle = { i -> scope.launch { c.db.plan().update(i.copy(done = !i.done)) } },
-                    onDelete = null,
-                    onStart = { s -> scope.launch { c.tracking.start(s) } })
-            }
+        current.take(3).forEach { item ->
+            PlanRow(
+                item, seeds.firstOrNull { it.id == item.seedId },
+                onToggle = { i -> scope.launch { c.db.plan().update(i.copy(done = !i.done)) } },
+                onDelete = null,
+                onStart = { s -> scope.launch { c.tracking.start(s) } },
+            )
         }
-        val later = DaySlot.entries.filter { it.ordinal > now.ordinal }.map { s -> s to items.filter { it.slot == s.ordinal && !it.done } }.filter { it.second.isNotEmpty() }
-        if (later.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
-            Text("Later: " + later.joinToString(" · ") { (s, l) -> "${s.label} ${l.size}" }, style = SeedsType.caption, color = SeedsTheme.colors.inkFaint)
-        }
-        if (evening) {
-            Spacer(Modifier.height(12.dp))
-            Row(
-                Modifier.fillMaxWidth().clip(Pill).background(SeedsTheme.colors.accentSoft).clickable(onClick = onPlanTomorrow).padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Rounded.Bedtime, null, tint = SeedsTheme.colors.accent, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    if (tomorrowItems.isEmpty()) "Plan tomorrow before bed" else "Tomorrow: ${tomorrowItems.size} planned · edit",
-                    style = SeedsType.label, color = SeedsTheme.colors.ink, modifier = Modifier.weight(1f),
-                )
-            }
-        }
+        if (current.size > 3) Text("+${current.size - 3} more", style = SeedsType.caption, color = SeedsTheme.colors.inkMuted, modifier = Modifier.padding(top = 8.dp))
     }
 }
 
-@Suppress("unused")
-private val unusedShape = InnerShape
+@Composable
+private fun SlimRow(icon: ImageVector, title: String, sub: String, onClick: () -> Unit) {
+    val c = SeedsTheme.colors
+    Row(
+        Modifier.fillMaxWidth().clip(InnerShape).background(c.surface).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = c.accent, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = SeedsType.bodyStrong, color = c.ink)
+            Text(sub, style = SeedsType.caption, color = c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = c.inkFaint)
+    }
+}

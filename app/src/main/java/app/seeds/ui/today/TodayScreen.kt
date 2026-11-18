@@ -9,11 +9,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,19 +26,14 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Coffee
-import androidx.compose.material.icons.rounded.NightsStay
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Widgets
-import app.seeds.ui.rememberResumeTick
-import app.seeds.ui.plan.TodayPlanCard
-import app.seeds.widget.Widgets
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -71,7 +64,6 @@ import app.seeds.domain.Overview
 import app.seeds.domain.SeedStat
 import app.seeds.seeds
 import app.seeds.ui.components.ButtonStyle
-import app.seeds.ui.components.DayStrip
 import app.seeds.ui.components.EmptyState
 import app.seeds.ui.components.Meter
 import app.seeds.ui.components.PillButton
@@ -80,23 +72,30 @@ import app.seeds.ui.components.SectionHeader
 import app.seeds.ui.components.SeedGlyph
 import app.seeds.ui.components.SeedsCard
 import app.seeds.ui.components.SeedsSheet
-import app.seeds.ui.components.StatTile
 import app.seeds.ui.components.rememberNow
+import app.seeds.ui.plan.TodayPlanCard
 import app.seeds.ui.rememberDayData
+import app.seeds.ui.rememberResumeTick
 import app.seeds.ui.switcher.QuickSwitchContent
 import app.seeds.ui.theme.Dimens
 import app.seeds.ui.theme.Ink
 import app.seeds.ui.theme.InnerShape
 import app.seeds.ui.theme.Pill
-import app.seeds.ui.theme.SeedIcons
 import app.seeds.ui.theme.SeedPalette
 import app.seeds.ui.theme.SeedsTheme
 import app.seeds.ui.theme.SeedsType
 import app.seeds.ui.theme.seedTone
+import app.seeds.widget.Widgets
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 
+/**
+ * Today answers three questions, top to bottom:
+ *   1. How am I doing?        → one-line summary (tap for the full review)
+ *   2. What am I doing now?   → the Now card, with one obvious next action
+ *   3. What's left?           → your plan for this part of the day, then your seeds
+ */
 @Composable
 fun TodayScreen(
     settings: Settings,
@@ -112,23 +111,20 @@ fun TodayScreen(
     val now by rememberNow(1000)
     val bucket = now / 10_000
     val o = remember(data, bucket, data.sessions) { Engine.overview(data.clock, data.seeds, data.sessions, now) }
-    val moneyFlow = remember(o.day) { c.money.range(data.clock.dayStart(o.day), data.clock.dayEnd(o.day)) }
-    val todayMoney by moneyFlow.collectAsStateWithLifecycle(emptyList())
-    val spentToday = todayMoney.filter { it.direction == app.seeds.data.db.Direction.OUT }.sumOf { it.amount + it.fee }
     val update by c.updates.available.collectAsStateWithLifecycle()
 
     var showSwitch by rememberSaveable { mutableStateOf(false) }
-    var logFor by remember { mutableStateOf<Long?>(null) }
     var showLog by remember { mutableStateOf(false) }
 
-    val colorOf: (Long?) -> Int? = { id -> data.seeds.firstOrNull { it.id == id }?.color }
-
-    // Offer the home-screen widget once, until it's placed or dismissed.
     val uiPrefs = remember { ctx.getSharedPreferences("seeds_ui", android.content.Context.MODE_PRIVATE) }
     val resume = rememberResumeTick()
     var tipDismissed by remember { mutableStateOf(uiPrefs.getBoolean("widget_tip_dismissed", false)) }
     val showWidgetTip = remember(resume, tipDismissed) { !tipDismissed && Widgets.canPin(ctx) && !Widgets.placed(ctx) }
     val dismissWidgetTip = { tipDismissed = true; uiPrefs.edit().putBoolean("widget_tip_dismissed", true).apply() }
+
+    val toggle: (SeedStat) -> Unit = { st ->
+        scope.launch { if (o.active?.seedId == st.seed.id) c.tracking.stop() else c.tracking.start(st.seed.id) }
+    }
 
     LazyColumn(
         Modifier.fillMaxSize().statusBarsPadding(),
@@ -140,101 +136,83 @@ fun TodayScreen(
             item {
                 Spacer(Modifier.height(12.dp))
                 Row(
-                    Modifier.fillMaxWidth().clip(InnerShape).background(SeedsTheme.colors.accentSoft).clickable(onClick = onOpenUpdate).padding(14.dp),
+                    Modifier.fillMaxWidth().clip(Pill).background(SeedsTheme.colors.accentSoft).clickable(onClick = onOpenUpdate)
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Rounded.SystemUpdate, null, tint = SeedsTheme.colors.accent)
-                    Spacer(Modifier.width(12.dp))
-                    Text("Seeds ${r.version} is ready", style = SeedsType.bodyStrong, color = SeedsTheme.colors.ink, modifier = Modifier.weight(1f))
+                    Icon(Icons.Rounded.SystemUpdate, null, tint = SeedsTheme.colors.accent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Seeds ${r.version} is ready", style = SeedsType.label, color = SeedsTheme.colors.ink, modifier = Modifier.weight(1f))
                     Text("Update", style = SeedsType.label, color = SeedsTheme.colors.accent)
                 }
             }
         }
 
-        // The day's summary lives at the top, always — review it any time, not just at night.
+        // 1 · How am I doing?
         item {
             Spacer(Modifier.height(16.dp))
-            SummaryCard(o, now, spentToday, settings.currency, colorOf, onOpenReview)
+            SummaryRow(o, onOpenReview)
         }
 
+        // 2 · What am I doing now?
         item {
             Spacer(Modifier.height(Dimens.gap))
-            NowCard(o, now, onSwitch = { showSwitch = true }, onStart = { id -> scope.launch { c.tracking.start(id) } }, onBreak = {
-                scope.launch { c.tracking.start(null, SessionKind.BREAK) }
-            }, onStop = { scope.launch { c.tracking.stop() } })
+            NowCard(
+                o, now,
+                onSwitch = { showSwitch = true },
+                onStart = { id -> scope.launch { c.tracking.start(id) } },
+                onStop = { scope.launch { c.tracking.stop() } },
+            )
         }
 
+        // 3 · What's left?
         item {
             Spacer(Modifier.height(Dimens.gap))
             TodayPlanCard(settings, onOpen = { onOpenPlan("today") }, onPlanTomorrow = { onOpenPlan("tomorrow") })
         }
 
-        if (showWidgetTip) {
-            item {
-                Spacer(Modifier.height(Dimens.gap))
-                SeedsCard(color = SeedsTheme.colors.accentSoft) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Widgets, null, tint = SeedsTheme.colors.accent)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("Put Seeds on your home screen", style = SeedsType.bodyStrong, color = SeedsTheme.colors.ink)
-                            Text("See what's growing, switch in one tap, and catch MoMo payments to label.", style = SeedsType.caption, color = SeedsTheme.colors.inkMuted)
-                        }
-                    }
-                    Spacer(Modifier.height(14.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        PillButton("Not now", { dismissWidgetTip() }, Modifier.weight(1f), style = ButtonStyle.Ghost, height = 44.dp)
-                        PillButton("Add widget", { Widgets.requestPin(ctx); dismissWidgetTip() }, Modifier.weight(1f), height = 44.dp)
-                    }
-                }
-            }
-        }
-
         if (data.loaded && data.seeds.isEmpty()) {
             item {
-                EmptyState("No seeds yet", "A seed is a non-negotiable you give time to — daily, weekly or monthly.") {
-                    PillButton("Plant a seed", onPlantSeed, icon = Icons.Rounded.Add)
+                EmptyState("No seeds yet", "A seed is something you commit time to — every day, week or month.") {
+                    PillButton("Plant your first seed", onPlantSeed, icon = Icons.Rounded.Add)
                 }
             }
         }
 
         val dailyToday = o.daily.filter { it.appliesToday }
         if (dailyToday.isNotEmpty()) {
-            item { SectionHeader("Today · ${o.grown} of ${o.dailyCount} grown", action = "Log time", onAction = { logFor = null; showLog = true }) }
+            item { SectionHeader("Today's seeds · ${o.grown}/${o.dailyCount}", action = "+ Log past time", onAction = { showLog = true }) }
             items(dailyToday, key = { "d${it.seed.id}" }) { st ->
-                SeedRow(st, o.active?.seedId == st.seed.id && o.active.kind == SessionKind.SEED,
-                    onTap = { scope.launch { if (o.active?.seedId == st.seed.id) c.tracking.stop() else c.tracking.start(st.seed.id) } },
-                    onLong = { logFor = st.seed.id; showLog = true })
+                SeedRow(st, o.active?.seedId == st.seed.id && o.active.kind == SessionKind.SEED) { toggle(st) }
             }
         }
-        if (o.weekly.isNotEmpty()) {
-            item { SectionHeader("This week") }
-            items(o.weekly, key = { "w${it.seed.id}" }) { st ->
-                SeedRow(st, o.active?.seedId == st.seed.id,
-                    onTap = { scope.launch { if (o.active?.seedId == st.seed.id) c.tracking.stop() else c.tracking.start(st.seed.id) } },
-                    onLong = { logFor = st.seed.id; showLog = true })
-            }
-        }
-        if (o.monthly.isNotEmpty()) {
-            item { SectionHeader("This month") }
-            items(o.monthly, key = { "m${it.seed.id}" }) { st ->
-                SeedRow(st, o.active?.seedId == st.seed.id,
-                    onTap = { scope.launch { if (o.active?.seedId == st.seed.id) c.tracking.stop() else c.tracking.start(st.seed.id) } },
-                    onLong = { logFor = st.seed.id; showLog = true })
-            }
-        }
-        val resting = o.daily.filter { !it.appliesToday }
-        if (resting.isNotEmpty()) {
-            item {
-                Spacer(Modifier.height(16.dp))
-                Text("Resting today: " + resting.joinToString { it.seed.name }, style = SeedsType.caption, color = SeedsTheme.colors.inkFaint)
+        val longer = o.weekly + o.monthly
+        if (longer.isNotEmpty()) {
+            item { SectionHeader("This week & month") }
+            items(longer, key = { "l${it.seed.id}" }) { st ->
+                SeedRow(st, o.active?.seedId == st.seed.id) { toggle(st) }
             }
         }
 
+        if (showWidgetTip) {
+            item {
+                Spacer(Modifier.height(20.dp))
+                Row(
+                    Modifier.fillMaxWidth().clip(InnerShape).background(SeedsTheme.colors.surface).padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.Widgets, null, tint = SeedsTheme.colors.accent, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Add Seeds to your home screen", style = SeedsType.label, color = SeedsTheme.colors.ink, modifier = Modifier.weight(1f))
+                    Text("Later", style = SeedsType.label, color = SeedsTheme.colors.inkMuted, modifier = Modifier.clip(Pill).clickable { dismissWidgetTip() }.padding(8.dp))
+                    Text("Add", style = SeedsType.label, color = SeedsTheme.colors.accent, modifier = Modifier.clip(Pill).clickable { Widgets.requestPin(ctx); dismissWidgetTip() }.padding(8.dp))
+                }
+            }
+        }
     }
 
     if (showSwitch) SeedsSheet(onDismiss = { showSwitch = false }) { QuickSwitchContent(settings) { showSwitch = false } }
-    if (showLog) LogTimeSheet(settings, data.seeds, logFor) { showLog = false }
+    if (showLog) LogTimeSheet(settings, data.seeds, null) { showLog = false }
 }
 
 @Composable
@@ -246,71 +224,43 @@ private fun Header(s: Settings, o: Overview, now: Long) {
         in 17..21 -> "Good evening"
         else -> "Late night"
     }
-    Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(Fmt.dayLong(o.day), style = SeedsType.label, color = SeedsTheme.colors.inkMuted)
-            Text(if (s.name.isBlank()) greeting else "$greeting, ${s.name.substringBefore(' ')}", style = SeedsType.headline, color = SeedsTheme.colors.ink, maxLines = 2)
-        }
-        Spacer(Modifier.width(12.dp))
-        app.seeds.ui.components.SeedMark(26.dp)
+    Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+        Text(Fmt.dayLong(o.day), style = SeedsType.label, color = SeedsTheme.colors.inkMuted)
+        Text(if (s.name.isBlank()) greeting else "$greeting, ${s.name.substringBefore(' ')}", style = SeedsType.headline, color = SeedsTheme.colors.ink, maxLines = 2)
     }
 }
 
-/** Score, verdict, the day's strip and the numbers that matter — tap for the full review. */
+/** How the day is going, in one glance. Tap for the full review. */
 @Composable
-private fun SummaryCard(o: Overview, now: Long, spent: Long, currency: String, colorOf: (Long?) -> Int?, onOpen: () -> Unit) {
+private fun SummaryRow(o: Overview, onOpen: () -> Unit) {
     val c = SeedsTheme.colors
-    val evening = now >= o.sleepAt - 3 * 3_600_000L
-    val headline = when {
-        o.score == null -> "A day of its own."
-        o.score == 0 && !evening -> "The day is open."
-        o.score == 0 -> "Fallow ground — tomorrow is fertile."
-        o.score >= 95 -> "Full bloom."
-        o.score >= 75 -> "Strong growth."
-        o.score >= 45 -> "Something is growing."
-        else -> "A seed is still a seed."
-    }
-    SeedsCard(onClick = onOpen) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(68.dp), contentAlignment = Alignment.Center) {
-                Ring((o.score ?: 0) / 100f, c.accent, Modifier.size(68.dp), stroke = 7.dp)
-                Text(o.score?.toString() ?: "–", style = SeedsType.title, color = c.ink)
-            }
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                Text("TODAY SO FAR", style = SeedsType.overline, color = c.inkMuted)
-                Text(headline, style = SeedsType.subtitle, color = c.ink)
-                val left = (o.sleepAt - now).coerceAtLeast(0)
-                Text(
-                    (if (o.dailyCount > 0) "${o.grown}/${o.dailyCount} seeds grown · " else "") +
-                        if (left > 0) "${Fmt.duration(left)} until bed" else "past bedtime",
-                    style = SeedsType.caption, color = c.inkMuted,
-                )
-            }
+    Row(
+        Modifier.fillMaxWidth().clip(InnerShape).background(c.surface).clickable(onClick = onOpen).padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
+            Ring((o.score ?: 0) / 100f, c.accent, Modifier.size(52.dp), stroke = 5.dp)
+            Text(o.score?.toString() ?: "–", style = SeedsType.bodyStrong, color = c.ink)
         }
-        Spacer(Modifier.height(16.dp))
-        DayStrip(o, colorOf)
-        Spacer(Modifier.height(14.dp))
-        Row {
-            StatTile("Growing", Fmt.duration(o.focusMs), Modifier.weight(1f))
-            StatTile("Drift", Fmt.duration(o.driftMs), Modifier.weight(1f), valueColor = if (o.driftMs > 0) c.drift else c.ink)
-            StatTile("Spent", if (spent > 0) Fmt.compactMoney(spent) else "0", Modifier.weight(1f), sub = currency)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (o.dailyCount > 0) "${o.grown} of ${o.dailyCount} seeds grown" else "Your day so far",
+                style = SeedsType.bodyStrong, color = c.ink,
+            )
+            Text(
+                "${Fmt.duration(o.focusMs)} growing" + if (o.driftMs > 0) " · ${Fmt.duration(o.driftMs)} drift" else "",
+                style = SeedsType.caption, color = if (o.driftMs > 30 * 60_000) c.drift else c.inkMuted,
+            )
         }
-        Spacer(Modifier.height(14.dp))
-        Row(
-            Modifier.fillMaxWidth().clip(Pill).background(c.surfaceHi).padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Rounded.NightsStay, null, tint = c.accent, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(if (evening) "Review & reflect on today" else "Full review · any time", style = SeedsType.label, color = c.ink, modifier = Modifier.weight(1f))
-            Text("→", style = SeedsType.label, color = c.accent)
-        }
+        Text("Review", style = SeedsType.label, color = c.accent)
+        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = c.accent, modifier = Modifier.size(18.dp))
     }
 }
 
+/** The one thing that matters right now — and the obvious next action. */
 @Composable
-private fun NowCard(o: Overview, now: Long, onSwitch: () -> Unit, onStart: (Long) -> Unit, onBreak: () -> Unit, onStop: () -> Unit) {
+private fun NowCard(o: Overview, now: Long, onSwitch: () -> Unit, onStart: (Long) -> Unit, onStop: () -> Unit) {
     val a = o.active
     AnimatedContent(targetState = a?.id, transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(200)) }, label = "now") { id ->
         if (id != null && a != null) {
@@ -330,24 +280,19 @@ private fun NowCard(o: Overview, now: Long, onSwitch: () -> Unit, onStart: (Long
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Pulse(Ink)
                     Spacer(Modifier.width(8.dp))
-                    Text("NOW GROWING", style = SeedsType.overline, color = Ink.copy(alpha = 0.7f), modifier = Modifier.weight(1f))
-                    if (seed != null) Icon(SeedIcons.of(seed.icon), null, tint = Ink, modifier = Modifier.size(20.dp))
+                    Text("NOW", style = SeedsType.overline, color = Ink.copy(alpha = 0.7f))
                 }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(title, style = SeedsType.title, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(Fmt.timer(now - a.startedAt), style = SeedsType.display, color = Ink)
                 if (stat != null && stat.targetMs > 0) {
-                    Spacer(Modifier.height(12.dp))
-                    Meter(stat.progress, Ink, track = Ink.copy(alpha = 0.14f), height = 8.dp)
+                    Spacer(Modifier.height(10.dp))
+                    Meter(stat.progress, Ink, track = Ink.copy(alpha = 0.14f), height = 6.dp)
                     Spacer(Modifier.height(8.dp))
-                    val per = when (stat.seed.period) { Period.DAILY -> "today"; Period.WEEKLY -> "this week"; Period.MONTHLY -> "this month" }
                     Text(
-                        "${Fmt.duration(stat.doneMs)} of ${Fmt.duration(stat.targetMs)} $per" +
-                            if (stat.grown) " · grown ✓" else " · ${Fmt.duration(stat.remainingMs)} to go",
+                        if (stat.grown) "Grown — ${Fmt.duration(stat.doneMs)} ✓" else "${Fmt.duration(stat.remainingMs)} left to grow ${periodWord(stat)}",
                         style = SeedsType.label, color = Ink.copy(alpha = 0.75f),
                     )
-                } else {
-                    Text("Since ${Fmt.clock(a.startedAt)}", style = SeedsType.label, color = Ink.copy(alpha = 0.75f))
                 }
                 Spacer(Modifier.height(18.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -356,44 +301,33 @@ private fun NowCard(o: Overview, now: Long, onSwitch: () -> Unit, onStart: (Long
                 }
             }
         } else {
+            val next = o.nextUp
             SeedsCard(padding = PaddingValues(22.dp)) {
                 Text("NOTHING GROWING", style = SeedsType.overline, color = SeedsTheme.colors.inkMuted)
-                Spacer(Modifier.height(8.dp))
-                Text("What are you giving your time to?", style = SeedsType.title, color = SeedsTheme.colors.ink)
-                val next = o.nextUp
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    if (next != null) "What's next?" else if (o.dailyCount > 0) "Every seed has grown today." else "Ready when you are.",
+                    style = SeedsType.title, color = SeedsTheme.colors.ink,
+                )
                 Spacer(Modifier.height(16.dp))
                 if (next != null) {
                     PillButton("Start ${next.seed.name}", { onStart(next.seed.id) }, Modifier.fillMaxWidth(), style = ButtonStyle.Sprout, icon = Icons.Rounded.PlayArrow)
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(4.dp))
                 }
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    (o.daily.filter { it.appliesToday } + o.weekly + o.monthly).filter { it.seed.id != next?.seed?.id }.forEach { st ->
-                        QuickChip(st) { onStart(st.seed.id) }
-                    }
-                    Row(
-                        Modifier.clip(Pill).background(SeedsTheme.colors.surfaceHi).clickable(onClick = onBreak).padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Rounded.Coffee, null, tint = SeedsTheme.colors.inkMuted, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Break", style = SeedsType.label, color = SeedsTheme.colors.ink)
-                    }
-                }
+                Text(
+                    if (next != null) "or choose something else" else "Start something",
+                    style = SeedsType.label, color = SeedsTheme.colors.accent, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().clip(Pill).clickable(onClick = onSwitch).padding(10.dp),
+                )
             }
         }
     }
 }
 
-@Composable
-private fun QuickChip(st: SeedStat, onClick: () -> Unit) {
-    Row(
-        Modifier.clip(Pill).background(SeedsTheme.colors.surfaceHi).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(SeedIcons.of(st.seed.icon), null, tint = seedTone(st.seed.color), modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(st.seed.name, style = SeedsType.label, color = SeedsTheme.colors.ink, maxLines = 1)
-    }
+private fun periodWord(st: SeedStat) = when (st.seed.period) {
+    Period.DAILY -> "today"
+    Period.WEEKLY -> "this week"
+    Period.MONTHLY -> "this month"
 }
 
 @Composable
@@ -421,49 +355,41 @@ fun Pulse(color: Color) {
     Box(Modifier.size(8.dp).alpha(a).clip(CircleShape).background(color))
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/** One seed: its progress ring, its name, one plain line, and a single action. */
 @Composable
-private fun SeedRow(st: SeedStat, active: Boolean, onTap: () -> Unit, onLong: () -> Unit) {
+private fun SeedRow(st: SeedStat, active: Boolean, onTap: () -> Unit) {
     val c = SeedsTheme.colors
-    val haptics = LocalHapticFeedback.current
     Row(
         Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .clip(InnerShape)
             .background(if (active) c.accentSoft else c.surface)
-            .combinedClickable(onClick = onTap, onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onLong() })
+            .clickable(onClick = onTap)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SeedGlyph(st.seed.icon, st.seed.color, st.progress, 46.dp)
+        SeedGlyph(st.seed.icon, st.seed.color, st.progress, 44.dp)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(st.seed.name, style = SeedsType.bodyStrong, color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val line = when {
-                st.grown -> "Grown · ${Fmt.duration(st.doneMs)} of ${Fmt.duration(st.targetMs)}"
+                st.grown -> "Grown ✓  ${Fmt.duration(st.doneMs)}"
                 st.seed.period == Period.DAILY -> "${Fmt.duration(st.doneMs)} of ${Fmt.duration(st.targetMs)}"
-                else -> {
-                    val need = (st.paceTodayMs - st.todayMs).coerceAtLeast(0)
-                    "${Fmt.duration(st.doneMs)} of ${Fmt.duration(st.targetMs)} · " +
-                        if (need > 0) "${Fmt.duration(need)} today keeps pace" else "on pace today"
-                }
+                else -> "${Fmt.duration(st.doneMs)} of ${Fmt.duration(st.targetMs)} ${periodWord(st)}"
             }
-            Text(line, style = SeedsType.caption, color = if (st.grown) seedTone(st.seed.color) else c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(line, style = SeedsType.caption, color = if (st.grown) seedTone(st.seed.color) else c.inkMuted, maxLines = 1)
         }
         Spacer(Modifier.width(8.dp))
         if (active) {
-            Row(
-                Modifier.clip(Pill).background(c.accent).padding(horizontal = 10.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Row(Modifier.clip(Pill).background(c.accent).padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Pulse(c.onAccent)
                 Spacer(Modifier.width(6.dp))
                 Text("Growing", style = SeedsType.caption, color = c.onAccent)
             }
-        } else {
+        } else if (!st.grown) {
             Box(Modifier.size(36.dp).clip(CircleShape).background(c.surfaceHi), contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.PlayArrow, null, tint = c.ink, modifier = Modifier.size(20.dp))
+                Icon(Icons.Rounded.PlayArrow, "Start ${st.seed.name}", tint = c.ink, modifier = Modifier.size(20.dp))
             }
         }
     }

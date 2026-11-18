@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Seeds · Now — standard size. The middle block flexes so the card is always full. -->
+<!--
+  Seeds · Now. One job: what's growing right now, and one tap for what's next.
+  Name on top, the big number in the middle (it flexes to fill the card), actions at the bottom.
+-->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@android:id/background"
     android:layout_width="match_parent"
@@ -18,9 +21,9 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:paddingHorizontal="18dp"
-        android:paddingTop="16dp"
-        android:paddingBottom="14dp">
+        android:paddingHorizontal="20dp"
+        android:paddingTop="18dp"
+        android:paddingBottom="16dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -30,59 +33,39 @@
 
             <ImageView
                 android:id="@+id/mark"
-                android:layout_width="14dp"
-                android:layout_height="14dp"
+                android:layout_width="13dp"
+                android:layout_height="13dp"
                 android:contentDescription="@null"
                 android:src="@drawable/ic_seeds_mark" />
 
             <TextView
                 android:id="@+id/label"
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:layout_weight="1"
-                android:letterSpacing="0.12"
+                android:layout_marginStart="7dp"
+                android:letterSpacing="0.14"
                 android:maxLines="1"
-                android:textSize="11sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/money"
-                android:layout_width="wrap_content"
-                android:layout_height="22dp"
-                android:layout_marginEnd="8dp"
-                android:background="@drawable/widget_money_pill"
-                android:gravity="center"
-                android:paddingHorizontal="9dp"
-                android:textColor="#FF0E1210"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/score"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textSize="12sp"
+                android:textSize="10sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- Flexible hero: fills whatever height the launcher gives -->
+        <TextView
+            android:id="@+id/seed_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <!-- The one big number. Centered in whatever height the launcher gives. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:gravity="center_vertical"
             android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/seed_name"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textSize="17sp"
-                android:textStyle="bold" />
 
             <Chronometer
                 android:id="@+id/timer"
@@ -91,50 +74,52 @@
                 android:fontFeatureSettings="tnum"
                 android:includeFontPadding="false"
                 android:letterSpacing="-0.02"
-                android:textSize="42sp"
+                android:textSize="44sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/idle_big"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:fontFeatureSettings="tnum"
                 android:includeFontPadding="false"
-                android:textSize="30sp"
+                android:textSize="36sp"
                 android:textStyle="bold"
                 android:visibility="gone" />
+
+            <ProgressBar
+                android:id="@+id/progress_ink"
+                style="@android:style/Widget.ProgressBar.Horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="5dp"
+                android:layout_marginTop="10dp"
+                android:max="1000"
+                android:progressDrawable="@drawable/widget_progress_ink" />
+
+            <ProgressBar
+                android:id="@+id/progress"
+                style="@android:style/Widget.ProgressBar.Horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="5dp"
+                android:layout_marginTop="10dp"
+                android:max="1000"
+                android:progressDrawable="@drawable/widget_progress"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/detail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textSize="12sp" />
         </LinearLayout>
-
-        <ProgressBar
-            android:id="@+id/progress"
-            style="@android:style/Widget.ProgressBar.Horizontal"
-            android:layout_width="match_parent"
-            android:layout_height="6dp"
-            android:max="1000"
-            android:progressDrawable="@drawable/widget_progress" />
-
-        <ProgressBar
-            android:id="@+id/progress_ink"
-            style="@android:style/Widget.ProgressBar.Horizontal"
-            android:layout_width="match_parent"
-            android:layout_height="6dp"
-            android:max="1000"
-            android:progressDrawable="@drawable/widget_progress_ink"
-            android:visibility="gone" />
-
-        <TextView
-            android:id="@+id/detail"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textSize="12sp" />
 
         <LinearLayout
             android:id="@+id/actions_active"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:layout_marginTop="12dp"
+            android:layout_height="42dp"
             android:orientation="horizontal">
 
             <TextView
@@ -147,7 +132,7 @@
                 android:gravity="center"
                 android:text="Switch"
                 android:textColor="#FF0E1210"
-                android:textSize="13sp"
+                android:textSize="14sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -160,58 +145,42 @@
                 android:gravity="center"
                 android:text="Done"
                 android:textColor="#FFFFFFFF"
-                android:textSize="13sp"
+                android:textSize="14sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
         <LinearLayout
             android:id="@+id/actions_idle"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:layout_marginTop="12dp"
+            android:layout_height="42dp"
             android:orientation="horizontal"
             android:visibility="gone">
 
             <TextView
-                android:id="@+id/chip1"
+                android:id="@+id/btn_next"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:background="@drawable/widget_chip"
+                android:background="@drawable/widget_btn_accent"
                 android:ellipsize="end"
                 android:gravity="center"
                 android:maxLines="1"
-                android:paddingHorizontal="8dp"
-                android:textColor="@color/widget_ink"
-                android:textSize="12sp"
+                android:paddingHorizontal="12dp"
+                android:textColor="@color/widget_on_accent"
+                android:textSize="14sp"
                 android:textStyle="bold" />
 
             <TextView
-                android:id="@+id/chip2"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_marginStart="6dp"
-                android:layout_weight="1"
-                android:background="@drawable/widget_chip"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:maxLines="1"
-                android:paddingHorizontal="8dp"
-                android:textColor="@color/widget_ink"
-                android:textSize="12sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/chip3"
+                android:id="@+id/btn_more"
                 android:layout_width="wrap_content"
                 android:layout_height="match_parent"
-                android:layout_marginStart="6dp"
-                android:background="@drawable/widget_btn_accent"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/widget_chip"
                 android:gravity="center"
-                android:paddingHorizontal="16dp"
-                android:text="More"
-                android:textColor="@color/widget_on_accent"
-                android:textSize="12sp"
+                android:paddingHorizontal="18dp"
+                android:text="Other"
+                android:textColor="@color/widget_ink"
+                android:textSize="14sp"
                 android:textStyle="bold" />
         </LinearLayout>
     </LinearLayout>
