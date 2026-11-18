@@ -82,14 +82,15 @@ object Widgets {
         val unlabeled = runCatching { ctx.seeds.money.unlabeledNow() }.getOrDefault(emptyList())
 
         for (id in nowIds) {
-            // Narrow → compact. Wide but short → one slim row. Wide and tall enough → standard.
+            // Narrow → compact. Very short (4×1) → one row. Short → buttons under the timer. Tall → standard.
             val views = if (Build.VERSION.SDK_INT >= 31) {
                 RemoteViews(
                     mapOf(
-                        SizeF(100f, 48f) to standard(ctx, o, unlabeled, slim = true),
+                        SizeF(100f, 48f) to now(ctx, o, unlabeled, Mode.ROW),
                         SizeF(100f, 120f) to small(ctx, o),
-                        SizeF(180f, 48f) to standard(ctx, o, unlabeled, slim = true),
-                        SizeF(180f, 200f) to standard(ctx, o, unlabeled, slim = false),
+                        SizeF(180f, 48f) to now(ctx, o, unlabeled, Mode.ROW),
+                        SizeF(180f, 104f) to now(ctx, o, unlabeled, Mode.MEDIUM),
+                        SizeF(180f, 200f) to now(ctx, o, unlabeled, Mode.FULL),
                     ),
                 )
             } else {
@@ -97,10 +98,11 @@ object Widgets {
                 val w = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
                 val h = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT)
                 when {
-                    w in 1..179 && h in 1..119 -> standard(ctx, o, unlabeled, slim = true)
+                    w in 1..179 && h in 1..119 -> now(ctx, o, unlabeled, Mode.ROW)
                     w in 1..179 -> small(ctx, o)
-                    h in 1..199 -> standard(ctx, o, unlabeled, slim = true)
-                    else -> standard(ctx, o, unlabeled, slim = false)
+                    h in 1..103 -> now(ctx, o, unlabeled, Mode.ROW)
+                    h in 104..199 -> now(ctx, o, unlabeled, Mode.MEDIUM)
+                    else -> now(ctx, o, unlabeled, Mode.FULL)
                 }
             }
             mgr.updateAppWidget(id, views)
@@ -145,9 +147,15 @@ object Widgets {
 
     // ------------------------------------------------------------------------------------------
 
-    /** Standard (tall enough) and slim (one row) share ids; slim simply has no label/progress views. */
-    private fun standard(ctx: Context, o: Overview, unlabeled: List<Txn>, slim: Boolean): RemoteViews {
-        val v = RemoteViews(ctx.packageName, if (slim) R.layout.widget_now_wide else R.layout.widget_now)
+    /** FULL (tall), MEDIUM (buttons under the timer) and ROW (4×1, one line) share view ids. */
+    private enum class Mode { ROW, MEDIUM, FULL }
+
+    /** Only FULL has the eyebrow label and progress bars; MEDIUM and ROW simply skip them. */
+    private fun now(ctx: Context, o: Overview, unlabeled: List<Txn>, mode: Mode): RemoteViews {
+        val layout = when (mode) { Mode.ROW -> R.layout.widget_now_wide; Mode.MEDIUM -> R.layout.widget_now_medium; Mode.FULL -> R.layout.widget_now }
+        val v = RemoteViews(ctx.packageName, layout)
+        val slim = mode != Mode.FULL
+        val tiny = mode == Mode.ROW
         val l = look(ctx, o)
         base(v, l)
         v.setOnClickPendingIntent(android.R.id.background, Notifier.openApp(ctx, code = 90))
@@ -160,7 +168,7 @@ object Widgets {
         // MoMo payments waiting for a label — the little yellow pill, top right.
         if (unlabeled.isNotEmpty()) {
             v.setViewVisibility(R.id.money, View.VISIBLE)
-            v.setTextViewText(R.id.money, if (slim) "${unlabeled.size} MoMo" else "${unlabeled.size} MoMo to label")
+            v.setTextViewText(R.id.money, if (tiny) "${unlabeled.size} MoMo" else "${unlabeled.size} MoMo to label")
             v.setOnClickPendingIntent(
                 R.id.money,
                 PendingIntent.getActivity(ctx, 96, MoneyPromptActivity.intent(ctx, unlabeled.first().id), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE),
@@ -182,7 +190,7 @@ object Widgets {
                     v.setProgressBar(R.id.progress_ink, 1000, (st.progress * 1000).toInt(), false)
                 }
                 val per = when (st.seed.period) { Period.DAILY -> "today"; Period.WEEKLY -> "this week"; Period.MONTHLY -> "this month" }
-                v.setTextViewText(R.id.detail, if (st.grown) "Grown ✓" else if (slim) "${Fmt.duration(st.remainingMs)} left" else "${Fmt.duration(st.remainingMs)} left $per")
+                v.setTextViewText(R.id.detail, if (st.grown) "Grown ✓" else if (tiny) "${Fmt.duration(st.remainingMs)} left" else "${Fmt.duration(st.remainingMs)} left $per")
             } else {
                 if (!slim) v.setViewVisibility(R.id.progress_ink, View.GONE)
                 v.setTextViewText(R.id.detail, "since ${Fmt.clock(a.startedAt)}")
@@ -203,7 +211,7 @@ object Widgets {
                     v.setViewVisibility(R.id.progress, View.VISIBLE)
                     v.setProgressBar(R.id.progress, 1000, o.grown * 1000 / o.dailyCount, false)
                 }
-                v.setTextViewText(R.id.detail, if (slim) "grown" else "seeds grown · ${Fmt.duration(o.focusMs)} so far")
+                v.setTextViewText(R.id.detail, if (tiny) "grown" else "seeds grown · ${Fmt.duration(o.focusMs)} so far")
             } else {
                 v.setTextViewText(R.id.idle_big, Fmt.duration(o.focusMs))
                 if (!slim) v.setViewVisibility(R.id.progress, View.GONE)
