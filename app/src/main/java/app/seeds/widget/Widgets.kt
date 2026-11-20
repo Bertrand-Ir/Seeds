@@ -18,7 +18,9 @@ import androidx.core.content.ContextCompat
 import app.seeds.R
 import app.seeds.data.db.Period
 import app.seeds.data.db.SessionKind
+import app.seeds.domain.DaySlot
 import app.seeds.domain.Fmt
+import app.seeds.domain.PlanFocus
 import app.seeds.domain.Overview
 import app.seeds.notify.Notifier
 import app.seeds.tracking.ActionReceiver
@@ -80,17 +82,19 @@ object Widgets {
         if (nowIds.isEmpty() && todayIds.isEmpty()) return
         val o = runCatching { Effects.overview(ctx) }.getOrNull() ?: return
         val unlabeled = runCatching { ctx.seeds.money.unlabeledNow() }.getOrDefault(emptyList())
+        // What the plan says for this part of the day — shown instead of stats whenever nothing is running.
+        val focus = runCatching { PlanFocus.of(ctx.seeds.plan.forDate(o.day.toString()), DaySlot.now()) }.getOrNull()
 
         for (id in nowIds) {
             // Narrow → compact. Very short (4×1) → one row. Short → buttons under the timer. Tall → standard.
             val views = if (Build.VERSION.SDK_INT >= 31) {
                 RemoteViews(
                     mapOf(
-                        SizeF(100f, 48f) to now(ctx, o, unlabeled, Mode.ROW),
-                        SizeF(100f, 120f) to small(ctx, o),
-                        SizeF(180f, 48f) to now(ctx, o, unlabeled, Mode.ROW),
-                        SizeF(180f, 104f) to now(ctx, o, unlabeled, Mode.MEDIUM),
-                        SizeF(180f, 200f) to now(ctx, o, unlabeled, Mode.FULL),
+                        SizeF(100f, 48f) to now(ctx, o, unlabeled, focus, Mode.ROW),
+                        SizeF(100f, 120f) to small(ctx, o, focus),
+                        SizeF(180f, 48f) to now(ctx, o, unlabeled, focus, Mode.ROW),
+                        SizeF(180f, 104f) to now(ctx, o, unlabeled, focus, Mode.MEDIUM),
+                        SizeF(180f, 200f) to now(ctx, o, unlabeled, focus, Mode.FULL),
                     ),
                 )
             } else {
@@ -98,16 +102,16 @@ object Widgets {
                 val w = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
                 val h = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT)
                 when {
-                    w in 1..179 && h in 1..119 -> now(ctx, o, unlabeled, Mode.ROW)
-                    w in 1..179 -> small(ctx, o)
-                    h in 1..103 -> now(ctx, o, unlabeled, Mode.ROW)
-                    h in 104..199 -> now(ctx, o, unlabeled, Mode.MEDIUM)
-                    else -> now(ctx, o, unlabeled, Mode.FULL)
+                    w in 1..179 && h in 1..119 -> now(ctx, o, unlabeled, focus, Mode.ROW)
+                    w in 1..179 -> small(ctx, o, focus)
+                    h in 1..103 -> now(ctx, o, unlabeled, focus, Mode.ROW)
+                    h in 104..199 -> now(ctx, o, unlabeled, focus, Mode.MEDIUM)
+                    else -> now(ctx, o, unlabeled, focus, Mode.FULL)
                 }
             }
             mgr.updateAppWidget(id, views)
         }
-        if (todayIds.isNotEmpty()) mgr.updateAppWidget(todayIds, today(ctx, o))
+        if (todayIds.isNotEmpty()) mgr.updateAppWidget(todayIds, today(ctx, o, focus))
     }
 
     private fun startSeed(ctx: Context, seedId: Long, code: Int) =
@@ -151,7 +155,7 @@ object Widgets {
     private enum class Mode { ROW, MEDIUM, FULL }
 
     /** Only FULL has the eyebrow label and progress bars; MEDIUM and ROW simply skip them. */
-    private fun now(ctx: Context, o: Overview, unlabeled: List<Txn>, mode: Mode): RemoteViews {
+    private fun now(ctx: Context, o: Overview, unlabeled: List<Txn>, focus: PlanFocus?, mode: Mode): RemoteViews {
         val layout = when (mode) { Mode.ROW -> R.layout.widget_now_wide; Mode.MEDIUM -> R.layout.widget_now_medium; Mode.FULL -> R.layout.widget_now }
         val v = RemoteViews(ctx.packageName, layout)
         val slim = mode != Mode.FULL
@@ -176,6 +180,24 @@ object Widgets {
         } else v.setViewVisibility(R.id.money, View.GONE)
 
         val a = o.active
+        val planMode = a == null && focus != null
+        v.setViewVisibility(R.id.now_box, if (planMode) View.GONE else View.VISIBLE)
+        v.setViewVisibility(R.id.plan_flipper, if (planMode) View.VISIBLE else View.GONE)
+        if (planMode && focus != null) {
+            when (mode) {
+                Mode.FULL -> v.setTextViewText(R.id.label, focus.label.uppercase())
+                Mode.MEDIUM -> v.setTextViewText(R.id.seed_name, focus.label)
+                Mode.ROW -> Unit
+            }
+            if (mode == Mode.MEDIUM) v.setTextColor(R.id.seed_name, l.muted)
+            if (mode == Mode.ROW) {
+                v.setViewVisibility(R.id.actions_active, View.GONE)
+                v.setViewVisibility(R.id.actions_idle, View.GONE)
+            }
+            val child = when (mode) { Mode.FULL -> R.layout.widget_plan_full; Mode.MEDIUM -> R.layout.widget_plan_medium; Mode.ROW -> R.layout.widget_plan_row }
+            fillPlan(ctx, v, focus, child, withLabel = mode == Mode.ROW)
+            return v
+        }
         if (a != null) {
             if (!slim) v.setTextViewText(R.id.label, "NOW")
             v.setTextViewText(R.id.seed_name, title(o))
@@ -232,7 +254,7 @@ object Widgets {
         return v
     }
 
-    private fun small(ctx: Context, o: Overview): RemoteViews {
+    private fun small(ctx: Context, o: Overview, focus: PlanFocus?): RemoteViews {
         val v = RemoteViews(ctx.packageName, R.layout.widget_now_small)
         val l = look(ctx, o)
         base(v, l)
@@ -241,6 +263,16 @@ object Widgets {
         v.setTextColor(R.id.timer, l.ink)
         v.setTextColor(R.id.idle_big, l.ink)
         val a = o.active
+        val planMode = a == null && focus != null
+        v.setViewVisibility(R.id.now_box, if (planMode) View.GONE else View.VISIBLE)
+        v.setViewVisibility(R.id.btn_main, if (planMode) View.GONE else View.VISIBLE)
+        v.setViewVisibility(R.id.plan_flipper, if (planMode) View.VISIBLE else View.GONE)
+        if (planMode && focus != null) {
+            v.setTextViewText(R.id.seed_name, focus.label)
+            v.setTextColor(R.id.seed_name, l.muted)
+            fillPlan(ctx, v, focus, R.layout.widget_plan_small, withLabel = false)
+            return v
+        }
         if (a != null) {
             v.setTextViewText(R.id.seed_name, title(o))
             v.setViewVisibility(R.id.timer, View.VISIBLE)
@@ -269,17 +301,57 @@ object Widgets {
         return v
     }
 
+    /**
+     * One card per planned item, rotated by the ViewFlipper every few seconds. Each card carries its own
+     * buttons: a planned seed gets ▶ Start (plus ✓ to tick it off); a plain task gets ✓ Done.
+     */
+    private fun fillPlan(ctx: Context, v: RemoteViews, focus: PlanFocus, layout: Int, withLabel: Boolean) {
+        v.removeAllViews(R.id.plan_flipper)
+        val n = focus.items.size
+        focus.items.take(MAX_PLAN_CARDS).forEachIndexed { i, item ->
+            val card = RemoteViews(ctx.packageName, layout)
+            card.setTextViewText(R.id.plan_title, item.title)
+            val count = if (n > 1) "${i + 1} of $n" else ""
+            card.setTextViewText(
+                R.id.plan_sub,
+                when {
+                    withLabel -> listOf(focus.label, count).filter { it.isNotEmpty() }.joinToString(" · ")
+                    else -> count
+                },
+            )
+            val done = Notifier.action(ctx, ActionReceiver.PLAN_DONE, RC_PLAN_DONE + i) { putExtra(ActionReceiver.EXTRA_PLAN, item.id) }
+            val seedId = item.seedId
+            if (seedId != null) {
+                card.setTextViewText(R.id.plan_primary, "▶  Start")
+                card.setOnClickPendingIntent(R.id.plan_primary, startSeed(ctx, seedId, RC_PLAN_START + i))
+                card.setTextViewText(R.id.plan_secondary, "✓")
+                card.setOnClickPendingIntent(R.id.plan_secondary, done)
+            } else {
+                card.setTextViewText(R.id.plan_primary, "✓  Done")
+                card.setOnClickPendingIntent(R.id.plan_primary, done)
+                card.setTextViewText(R.id.plan_secondary, "Other")
+                card.setOnClickPendingIntent(R.id.plan_secondary, Notifier.quickSwitch(ctx))
+            }
+            v.addView(R.id.plan_flipper, card)
+        }
+    }
+
+    private const val MAX_PLAN_CARDS = 8
+    private const val RC_PLAN_START = 3000
+    private const val RC_PLAN_DONE = 3100
+
     // ------------------------------------------------------------------------------------------
 
-    private fun today(ctx: Context, o: Overview): RemoteViews {
+    private fun today(ctx: Context, o: Overview, focus: PlanFocus?): RemoteViews {
         val v = RemoteViews(ctx.packageName, R.layout.widget_today)
         v.setOnClickPendingIntent(android.R.id.background, Notifier.openApp(ctx, "review", 95))
         v.setInt(R.id.bg, "setColorFilter", ContextCompat.getColor(ctx, R.color.widget_bg))
         v.setTextViewText(R.id.score, o.score?.toString() ?: "–")
         v.setImageViewBitmap(R.id.ring, ring(ctx, (o.score ?: 0) / 100f))
         v.setTextViewText(R.id.summary, if (o.dailyCount > 0) "${o.grown} of ${o.dailyCount} grown" else "${Fmt.duration(o.focusMs)} growing")
-        v.setTextViewText(R.id.summary2, o.activeSeed?.let { "● ${it.name}" } ?: "")
-        v.setViewVisibility(R.id.summary2, if (o.activeSeed != null) View.VISIBLE else View.GONE)
+        val line = o.activeSeed?.let { "● ${it.name}" } ?: focus?.let { "${it.label}: ${it.items.first().title}" }
+        v.setTextViewText(R.id.summary2, line ?: "")
+        v.setViewVisibility(R.id.summary2, if (line != null) View.VISIBLE else View.GONE)
         return v
     }
 

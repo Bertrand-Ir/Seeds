@@ -10,6 +10,7 @@ import app.seeds.domain.DayClock
 import app.seeds.notify.Alarms
 import app.seeds.notify.Notifier
 import app.seeds.seeds
+import app.seeds.widget.Widgets
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -99,11 +100,6 @@ class ActionReceiver : BroadcastReceiver() {
                 Notifier.morning(ctx, s.name, Effects.overview(ctx, now), morning)
                 Alarms.scheduleAll(ctx, s)
             }
-            RUN_REMINDER -> {
-                val id = intent.getLongExtra(EXTRA_ROUTE, -1)
-                c.db.routes().get(id)?.let { r -> Notifier.runReminder(ctx, r.id, r.name, app.seeds.domain.Geo.km(r.distanceM, 1)) }
-                Alarms.scheduleRuns(ctx)
-            }
             NIGHT -> {
                 val s = c.settings.current()
                 val o = Effects.overview(ctx, now)
@@ -112,6 +108,14 @@ class ActionReceiver : BroadcastReceiver() {
                     .filter { it.direction == Direction.OUT }.sumOf { it.amount + it.fee }
                 Notifier.night(ctx, o, spent, s.currency)
                 Alarms.scheduleAll(ctx, s)
+            }
+            SLOT_TICK -> {
+                Alarms.scheduleSlotTick(ctx, c.settings.current())
+                Widgets.updateAll(ctx)
+            }
+            PLAN_DONE -> {
+                val id = intent.getLongExtra(EXTRA_PLAN, -1)
+                if (id > 0) c.plan.markDone(id)
             }
             WORK_START, WORK_END -> {
                 Alarms.scheduleAll(ctx, c.settings.current())
@@ -135,8 +139,9 @@ class ActionReceiver : BroadcastReceiver() {
         const val NIGHT = "app.seeds.NIGHT"
         const val WORK_START = "app.seeds.WORK_START"
         const val WORK_END = "app.seeds.WORK_END"
-        const val RUN_REMINDER = "app.seeds.RUN_REMINDER"
-        const val EXTRA_ROUTE = "route"
+        const val SLOT_TICK = "app.seeds.SLOT_TICK"
+        const val PLAN_DONE = "app.seeds.PLAN_DONE"
+        const val EXTRA_PLAN = "plan"
 
         const val EXTRA_SEED = "seed"
         const val EXTRA_SESSION = "session"

@@ -26,18 +26,13 @@ object Alarms {
     private const val RC_WORK_END = 104
     private const val RC_CHECKIN = 105
     private const val RC_CHECKIN_TIMEOUT = 106
+    private const val RC_SLOT = 108
 
-    private const val RC_RUN = 107
-
-    /** Arms a reminder for the soonest scheduled run route. */
-    suspend fun scheduleRuns(ctx: Context) {
-        cancel(ctx, RC_RUN, ActionReceiver.RUN_REMINDER)
+    /** Wakes at the next window change (morning → noon → …) and at the day boundary, so the widget shows the right plan. */
+    fun scheduleSlotTick(ctx: Context, s: Settings) {
         val now = System.currentTimeMillis()
-        val next = ctx.seeds.db.routes().active()
-            .filter { it.scheduleMin != null && it.scheduleDays != 0 }
-            .map { r -> r to nextAt(r.scheduleMin!!, now) { d -> r.scheduleDays and (1 shl (d - 1)) != 0 } }
-            .minByOrNull { it.second } ?: return
-        set(ctx, RC_RUN, ActionReceiver.RUN_REMINDER, next.second) { putExtra(ActionReceiver.EXTRA_ROUTE, next.first.id) }
+        val mins = app.seeds.domain.DaySlot.boundaries + app.seeds.domain.DayClock(s).boundaryMin
+        set(ctx, RC_SLOT, ActionReceiver.SLOT_TICK, mins.minOf { nextAt(it, now) })
     }
 
     /** Evening report arrives a little before bedtime, while there's still time to reflect. */
@@ -48,6 +43,7 @@ object Alarms {
         val now = System.currentTimeMillis()
         if (s.morningBrief) set(ctx, RC_MORNING, ActionReceiver.MORNING, nextAt(s.wakeMin, now)) else cancel(ctx, RC_MORNING, ActionReceiver.MORNING)
         if (s.nightReview) set(ctx, RC_NIGHT, ActionReceiver.NIGHT, nextAt(Math.floorMod(s.sleepMin - NIGHT_LEAD_MIN, 1440), now)) else cancel(ctx, RC_NIGHT, ActionReceiver.NIGHT)
+        scheduleSlotTick(ctx, s)
         if (s.driftEnabled) {
             set(ctx, RC_WORK_START, ActionReceiver.WORK_START, nextAt(s.workStartMin, now) { s.isWorkDay(it) })
             set(ctx, RC_WORK_END, ActionReceiver.WORK_END, nextAt(s.workEndMin, now))
@@ -90,10 +86,10 @@ object Alarms {
         return PendingIntent.getBroadcast(ctx, code, i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    fun set(ctx: Context, code: Int, action: String, at: Long, extras: Intent.() -> Unit = {}) {
+    fun set(ctx: Context, code: Int, action: String, at: Long, exactIfAllowed: Boolean = true, extras: Intent.() -> Unit = {}) {
         val am = ctx.getSystemService(AlarmManager::class.java)
         val pi = pending(ctx, code, action, extras)
-        val exact = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
+        val exact = exactIfAllowed && (Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms())
         if (exact) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
         else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
     }
@@ -110,7 +106,6 @@ class BootReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.Default).launch {
             try {
                 Alarms.scheduleAll(context, context.seeds.settings.current())
-                Alarms.scheduleRuns(context)
                 Effects.refresh(context)
             } finally {
                 pending.finish()

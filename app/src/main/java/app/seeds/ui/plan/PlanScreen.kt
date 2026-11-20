@@ -80,7 +80,6 @@ import app.seeds.ui.theme.SeedsTheme
 import app.seeds.ui.theme.SeedsType
 import app.seeds.ui.theme.seedTone
 import kotlinx.coroutines.launch
-import java.time.LocalDateTime
 
 fun DaySlot.icon(): ImageVector = when (this) {
     DaySlot.MORNING -> Icons.Rounded.Coffee
@@ -90,7 +89,7 @@ fun DaySlot.icon(): ImageVector = when (this) {
     DaySlot.NIGHT -> Icons.Rounded.Bedtime
 }
 
-fun currentSlot(): DaySlot = LocalDateTime.now().let { DaySlot.at(it.hour * 60 + it.minute) }
+fun currentSlot(): DaySlot = DaySlot.now()
 
 /** Plan a day in windows, not minutes. Morning · Noon · Afternoon · Evening · Night. */
 @Composable
@@ -103,9 +102,9 @@ fun PlanScreen(settings: Settings, which: String, onBack: () -> Unit) {
     var tomorrow by remember { mutableStateOf(which != "today") }
     val date = if (tomorrow) today.plusDays(1) else today
     val iso = date.toString()
-    val itemsFlow = remember(iso) { c.db.plan().observe(iso) }
+    val itemsFlow = remember(iso) { c.plan.observe(iso) }
     val items by itemsFlow.collectAsStateWithLifecycle(emptyList())
-    val todayFlow = remember(today) { c.db.plan().observe(today.toString()) }
+    val todayFlow = remember(today) { c.plan.observe(today.toString()) }
     val todayItems by todayFlow.collectAsStateWithLifecycle(emptyList())
     val seeds by c.tracking.seeds.collectAsStateWithLifecycle(emptyList())
     var adding by remember { mutableStateOf<DaySlot?>(null) }
@@ -117,8 +116,7 @@ fun PlanScreen(settings: Settings, which: String, onBack: () -> Unit) {
     }
 
     fun add(slot: DaySlot, title: String, seed: Seed?) = scope.launch {
-        if (title.isBlank()) return@launch
-        c.db.plan().insert(PlanItem(date = iso, slot = slot.ordinal, title = title.trim(), seedId = seed?.id, sortOrder = items.count { it.slot == slot.ordinal }))
+        c.plan.add(iso, slot, title, seed?.id)
     }
 
     LazyColumn(
@@ -161,8 +159,8 @@ fun PlanScreen(settings: Settings, which: String, onBack: () -> Unit) {
                     onOpen = { adding = if (adding == slot) null else slot },
                     onAdd = { title, seed -> add(slot, title, seed) },
                     unplaced = unplaced,
-                    onToggle = { i -> scope.launch { c.db.plan().update(i.copy(done = !i.done)) } },
-                    onDelete = { i -> scope.launch { c.db.plan().delete(i) } },
+                    onToggle = { i -> scope.launch { c.plan.toggle(i) } },
+                    onDelete = { i -> scope.launch { c.plan.delete(i) } },
                     onStart = if (!tomorrow) { s -> scope.launch { c.tracking.start(s) } } else null,
                 )
             }
@@ -173,10 +171,7 @@ fun PlanScreen(settings: Settings, which: String, onBack: () -> Unit) {
             if (leftover.isNotEmpty()) item {
                 Spacer(Modifier.height(16.dp))
                 PillButton("Bring ${leftover.size} unfinished from today", {
-                    scope.launch {
-                        leftover.forEach { c.db.plan().insert(it.copy(id = 0, date = iso, done = false)) }
-                        leftover.forEach { c.db.plan().delete(it) }
-                    }
+                    scope.launch { c.plan.carryOver(leftover, iso) }
                 }, Modifier.fillMaxWidth(), style = ButtonStyle.Secondary)
             }
         }
@@ -286,79 +281,5 @@ fun PlanRow(item: PlanItem, seed: Seed?, onToggle: (PlanItem) -> Unit, onDelete:
                 Icon(Icons.Rounded.Close, "Remove", tint = c.inkFaint, modifier = Modifier.size(16.dp))
             }
         }
-    }
-}
-
-/**
- * On Today: just what's left in the part of the day you're in. When nothing is planned it shrinks
- * to one quiet row, so it never competes with the Now card.
- */
-@Composable
-fun TodayPlanCard(settings: Settings, onOpen: () -> Unit, onPlanTomorrow: () -> Unit) {
-    val ctx = LocalContext.current
-    val c = ctx.seeds
-    val scope = rememberCoroutineScope()
-    val clock = remember(settings) { DayClock(settings) }
-    val today = clock.today()
-    val flow = remember(today) { c.db.plan().observe(today.toString()) }
-    val items by flow.collectAsStateWithLifecycle(emptyList())
-    val tFlow = remember(today) { c.db.plan().observe(today.plusDays(1).toString()) }
-    val tomorrowItems by tFlow.collectAsStateWithLifecycle(emptyList())
-    val seeds by c.tracking.seeds.collectAsStateWithLifecycle(emptyList())
-    val now = currentSlot()
-    val evening = now == DaySlot.EVENING || now == DaySlot.NIGHT
-    val current = items.filter { it.slot == now.ordinal && !it.done }
-    val nextLater = items.filter { it.slot > now.ordinal && !it.done }.minByOrNull { it.slot }
-
-    // Evening with tomorrow unplanned → that's the one thing to suggest.
-    if (evening && tomorrowItems.isEmpty() && current.isEmpty()) {
-        SlimRow(Icons.Rounded.Bedtime, "Plan tomorrow", "Put a few things into morning, noon, evening…", onPlanTomorrow)
-        return
-    }
-    if (current.isEmpty()) {
-        when {
-            items.isEmpty() -> SlimRow(now.icon(), "Plan your day", "No exact times — just what goes where", onOpen)
-            nextLater != null -> SlimRow(
-                now.icon(), "Nothing planned this ${now.label.lowercase()}",
-                "Next: ${DaySlot.entries[nextLater.slot].label.lowercase()} · ${nextLater.title}", onOpen,
-            )
-            else -> SlimRow(now.icon(), "Plan complete for today", "${items.count { it.done }} of ${items.size} done", onOpen)
-        }
-        return
-    }
-
-    SeedsCard(padding = PaddingValues(16.dp)) {
-        Row(Modifier.fillMaxWidth().clickable(onClick = onOpen), verticalAlignment = Alignment.CenterVertically) {
-            Icon(now.icon(), null, tint = SeedsTheme.colors.accent, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("THIS ${now.label.uppercase()}", style = SeedsType.overline, color = SeedsTheme.colors.inkMuted, modifier = Modifier.weight(1f))
-            Text("Full plan", style = SeedsType.label, color = SeedsTheme.colors.accent)
-        }
-        current.take(3).forEach { item ->
-            PlanRow(
-                item, seeds.firstOrNull { it.id == item.seedId },
-                onToggle = { i -> scope.launch { c.db.plan().update(i.copy(done = !i.done)) } },
-                onDelete = null,
-                onStart = { s -> scope.launch { c.tracking.start(s) } },
-            )
-        }
-        if (current.size > 3) Text("+${current.size - 3} more", style = SeedsType.caption, color = SeedsTheme.colors.inkMuted, modifier = Modifier.padding(top = 8.dp))
-    }
-}
-
-@Composable
-private fun SlimRow(icon: ImageVector, title: String, sub: String, onClick: () -> Unit) {
-    val c = SeedsTheme.colors
-    Row(
-        Modifier.fillMaxWidth().clip(InnerShape).background(c.surface).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, tint = c.accent, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = SeedsType.bodyStrong, color = c.ink)
-            Text(sub, style = SeedsType.caption, color = c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = c.inkFaint)
     }
 }

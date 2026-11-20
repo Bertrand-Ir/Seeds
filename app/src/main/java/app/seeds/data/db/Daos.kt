@@ -256,6 +256,9 @@ interface PlanDao {
     @Query("SELECT * FROM plan_items")
     suspend fun all(): List<PlanItem>
 
+    @Query("SELECT * FROM plan_items WHERE id = :id")
+    suspend fun get(id: Long): PlanItem?
+
     @Insert
     suspend fun insert(item: PlanItem): Long
 

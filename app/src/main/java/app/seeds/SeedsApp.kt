@@ -5,6 +5,7 @@ import android.content.Context
 import app.seeds.data.db.SeedsDatabase
 import app.seeds.data.prefs.SettingsRepository
 import app.seeds.data.repo.MoneyRepository
+import app.seeds.data.repo.PlanRepository
 import app.seeds.data.repo.TrackingRepository
 import app.seeds.notify.Alarms
 import app.seeds.notify.Notifier
@@ -28,14 +29,7 @@ class SeedsApp : Application() {
         container.scope.launch {
             container.money.ensureDefaults()
             Alarms.scheduleAll(this@SeedsApp, container.settings.current())
-            Alarms.scheduleRuns(this@SeedsApp)
             Effects.refresh(this@SeedsApp)
-        }
-        // OpenStreetMap tiles: identify ourselves and keep the cache inside the app.
-        org.osmdroid.config.Configuration.getInstance().apply {
-            userAgentValue = "Seeds-Android/${BuildConfig.VERSION_NAME}"
-            osmdroidBasePath = java.io.File(filesDir, "osmdroid")
-            osmdroidTileCache = java.io.File(cacheDir, "osm-tiles")
         }
         UpdateWorker.schedule(this)
     }
@@ -47,6 +41,7 @@ class AppContainer(app: Context) {
     val settings = SettingsRepository(app)
     val tracking = TrackingRepository(db) { Effects.refresh(app) }
     val money = MoneyRepository(db) { Widgets.updateAll(app) }
+    val plan = PlanRepository(db) { Widgets.updateAll(app) }
     val updates = UpdateManager(app, settings)
 }
 

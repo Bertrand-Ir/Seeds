@@ -73,7 +73,7 @@ import app.seeds.ui.components.SeedGlyph
 import app.seeds.ui.components.SeedsCard
 import app.seeds.ui.components.SeedsSheet
 import app.seeds.ui.components.rememberNow
-import app.seeds.ui.plan.TodayPlanCard
+import app.seeds.ui.plan.PlanHero
 import app.seeds.ui.rememberDayData
 import app.seeds.ui.rememberResumeTick
 import app.seeds.ui.switcher.QuickSwitchContent
@@ -91,10 +91,11 @@ import java.time.Instant
 import java.time.ZoneId
 
 /**
- * Today answers three questions, top to bottom:
- *   1. How am I doing?        → one-line summary (tap for the full review)
- *   2. What am I doing now?   → the Now card, with one obvious next action
- *   3. What's left?           → your plan for this part of the day, then your seeds
+ * Today, top to bottom:
+ *   1. How am I doing?        → the score ring and one line in the header (tap for the full review)
+ *   2. What's growing now?    → the Now card, only while something runs
+ *   3. What did I plan?       → the plan for this part of the day — the heart of the screen
+ *   4. Everything else        → start something, then your seeds
  */
 @Composable
 fun TodayScreen(
@@ -130,7 +131,7 @@ fun TodayScreen(
         Modifier.fillMaxSize().statusBarsPadding(),
         contentPadding = PaddingValues(start = Dimens.gutter, end = Dimens.gutter, top = 8.dp, bottom = 140.dp),
     ) {
-        item { Header(settings, o, now) }
+        item { Header(settings, o, now, onOpenReview) }
 
         update?.let { r ->
             item {
@@ -148,15 +149,9 @@ fun TodayScreen(
             }
         }
 
-        // 1 · How am I doing?
-        item {
+        // 2 · What's growing now? (only while something runs)
+        if (o.active != null) item {
             Spacer(Modifier.height(16.dp))
-            SummaryRow(o, onOpenReview)
-        }
-
-        // 2 · What am I doing now?
-        item {
-            Spacer(Modifier.height(Dimens.gap))
             NowCard(
                 o, now,
                 onSwitch = { showSwitch = true },
@@ -165,10 +160,16 @@ fun TodayScreen(
             )
         }
 
-        // 3 · What's left?
+        // 3 · What did I plan for right now?
         item {
+            Spacer(Modifier.height(if (o.active != null) Dimens.gap else 16.dp))
+            PlanHero(settings, activeSeedId = o.active?.seedId, onOpenPlan = onOpenPlan)
+        }
+
+        // 4 · Nothing running → one quiet way to start anything
+        if (o.active == null) item {
             Spacer(Modifier.height(Dimens.gap))
-            TodayPlanCard(settings, onOpen = { onOpenPlan("today") }, onPlanTomorrow = { onOpenPlan("tomorrow") })
+            StartRow(o) { showSwitch = true }
         }
 
         if (data.loaded && data.seeds.isEmpty()) {
@@ -216,7 +217,7 @@ fun TodayScreen(
 }
 
 @Composable
-private fun Header(s: Settings, o: Overview, now: Long) {
+private fun Header(s: Settings, o: Overview, now: Long, onOpenReview: () -> Unit) {
     val hour = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).hour
     val greeting = when (hour) {
         in 4..11 -> "Good morning"
@@ -224,37 +225,54 @@ private fun Header(s: Settings, o: Overview, now: Long) {
         in 17..21 -> "Good evening"
         else -> "Late night"
     }
-    Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
-        Text(Fmt.dayLong(o.day), style = SeedsType.label, color = SeedsTheme.colors.inkMuted)
-        Text(if (s.name.isBlank()) greeting else "$greeting, ${s.name.substringBefore(' ')}", style = SeedsType.headline, color = SeedsTheme.colors.ink, maxLines = 2)
+    val c = SeedsTheme.colors
+    Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(Fmt.dayLong(o.day), style = SeedsType.label, color = c.inkMuted)
+            Text(if (s.name.isBlank()) greeting else "$greeting, ${s.name.substringBefore(' ')}", style = SeedsType.headline, color = c.ink, maxLines = 2)
+            Text(
+                (if (o.dailyCount > 0) "${o.grown} of ${o.dailyCount} seeds grown · " else "") + "${Fmt.duration(o.focusMs)} growing" +
+                    if (o.driftMs > 0) " · ${Fmt.duration(o.driftMs)} drift" else "",
+                style = SeedsType.caption, color = if (o.driftMs > 30 * 60_000) c.drift else c.inkMuted,
+                modifier = Modifier.padding(top = 2.dp).clickable(onClick = onOpenReview),
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        // The day's score — tap for the full review, any time
+        Column(
+            Modifier.clip(InnerShape).clickable(onClick = onOpenReview).padding(6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(Modifier.size(54.dp), contentAlignment = Alignment.Center) {
+                Ring((o.score ?: 0) / 100f, c.accent, Modifier.size(54.dp), stroke = 5.dp)
+                Text(o.score?.toString() ?: "–", style = SeedsType.bodyStrong, color = c.ink)
+            }
+            Spacer(Modifier.height(4.dp))
+            Text("Review", style = SeedsType.caption, color = c.accent)
+        }
     }
 }
 
-/** How the day is going, in one glance. Tap for the full review. */
+/** When nothing is growing: one calm row to start anything (the plan above already offers the planned things). */
 @Composable
-private fun SummaryRow(o: Overview, onOpen: () -> Unit) {
+private fun StartRow(o: Overview, onStart: () -> Unit) {
     val c = SeedsTheme.colors
     Row(
-        Modifier.fillMaxWidth().clip(InnerShape).background(c.surface).clickable(onClick = onOpen).padding(14.dp),
+        Modifier.fillMaxWidth().clip(InnerShape).background(c.surface).clickable(onClick = onStart).padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
-            Ring((o.score ?: 0) / 100f, c.accent, Modifier.size(52.dp), stroke = 5.dp)
-            Text(o.score?.toString() ?: "–", style = SeedsType.bodyStrong, color = c.ink)
+        Box(Modifier.size(36.dp).clip(CircleShape).background(c.surfaceHi), contentAlignment = Alignment.Center) {
+            Icon(Icons.Rounded.PlayArrow, null, tint = c.ink, modifier = Modifier.size(20.dp))
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
+            Text("Nothing growing", style = SeedsType.bodyStrong, color = c.ink)
             Text(
-                if (o.dailyCount > 0) "${o.grown} of ${o.dailyCount} seeds grown" else "Your day so far",
-                style = SeedsType.bodyStrong, color = c.ink,
-            )
-            Text(
-                "${Fmt.duration(o.focusMs)} growing" + if (o.driftMs > 0) " · ${Fmt.duration(o.driftMs)} drift" else "",
-                style = SeedsType.caption, color = if (o.driftMs > 30 * 60_000) c.drift else c.inkMuted,
+                o.nextUp?.let { "Start ${it.seed.name}, or anything else" } ?: "Start something",
+                style = SeedsType.caption, color = c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
-        Text("Review", style = SeedsType.label, color = c.accent)
-        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = c.accent, modifier = Modifier.size(18.dp))
+        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = c.inkFaint)
     }
 }
 
